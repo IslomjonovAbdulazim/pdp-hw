@@ -31,6 +31,23 @@ body {
     line-height: 1.6;
 }
 
+/* Prevent autofill and form caching */
+form {
+    autocomplete: off;
+}
+
+input, textarea, select {
+    autocomplete: off;
+    -webkit-autocomplete: off;
+    -moz-autocomplete: off;
+}
+
+/* Specifically target password fields */
+input[type="password"] {
+    autocomplete: new-password;
+    -webkit-autocomplete: new-password;
+}
+
 /* Loading Screen */
 .loading-screen {
     position: fixed;
@@ -66,6 +83,7 @@ body {
 .hidden { display: none !important; }
 .text-center { text-align: center; }
 .text-muted { color: var(--gray-600); }
+.text-danger { color: var(--danger); }
 .mt-20 { margin-top: 20px; }
 .mb-20 { margin-bottom: 20px; }
 
@@ -104,24 +122,6 @@ body {
     font-size: 14px;
 }
 
-.login-demo {
-    margin-top: 30px;
-    text-align: center;
-}
-
-.login-demo p {
-    color: var(--gray-600);
-    font-size: 14px;
-    margin-bottom: 15px;
-}
-
-.demo-accounts {
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
 /* Forms */
 .form-group {
     margin-bottom: 20px;
@@ -147,6 +147,20 @@ body {
     font-size: 14px;
     transition: all 0.3s ease;
     background: var(--white);
+    /* Prevent autofill styling */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+
+/* Remove autofill background */
+.form-control:-webkit-autofill,
+.form-control:-webkit-autofill:hover,
+.form-control:-webkit-autofill:focus,
+.form-control:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 30px var(--white) inset !important;
+    -webkit-text-fill-color: var(--dark) !important;
+    background-color: var(--white) !important;
 }
 
 .form-control:focus {
@@ -612,13 +626,6 @@ textarea.form-control {
     gap: 30px;
 }
 
-.sample-buttons {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 15px;
-    flex-wrap: wrap;
-}
-
 .test-grading-results {
     max-height: 500px;
     overflow-y: auto;
@@ -687,6 +694,22 @@ textarea.form-control {
     background: var(--gray-100);
 }
 
+/* Security: Hide password managers suggestions */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
+}
+
+input[type="password"]::-webkit-contacts-auto-fill-button,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+    visibility: hidden;
+    display: none !important;
+    pointer-events: none;
+    height: 0;
+    width: 0;
+    margin: 0;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .app-header {
@@ -738,11 +761,6 @@ textarea.form-control {
         margin: 20px;
         max-height: calc(100vh - 40px);
     }
-    
-    .demo-accounts {
-        flex-direction: column;
-        gap: 8px;
-    }
 }
 
 @media (max-width: 480px) {
@@ -757,9 +775,5 @@ textarea.form-control {
     .modal-header,
     .modal-body {
         padding: 20px;
-    }
-    
-    .sample-buttons {
-        flex-direction: column;
     }
 }

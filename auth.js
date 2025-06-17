@@ -22,9 +22,12 @@ class Auth {
     }
 
     // Login user
-    static async login(username, password, deviceName) {
+    static async login(username, password) {
         try {
             showAlert('Logging in...', 'info');
+            
+            // Get device name automatically
+            const deviceName = getDeviceName();
             
             const response = await api.login(username, password, deviceName);
             
@@ -37,7 +40,7 @@ class Auth {
                 console.log('User logged in:', this.currentUser);
                 
                 // Show success message
-                showAlert(`Welcome back, ${this.currentUser.fullname}!`, 'success');
+                showAlert(`Welcome, ${this.currentUser.fullname}!`, 'success');
                 
                 // Redirect to app
                 this.showApp();
@@ -121,6 +124,9 @@ class Auth {
         document.getElementById('loadingScreen').classList.add('hidden');
         document.getElementById('appScreen').classList.add('hidden');
         document.getElementById('loginScreen').classList.remove('hidden');
+        
+        // Clear any stored credentials
+        this.clearLoginForm();
     }
 
     // Show main app
@@ -139,6 +145,12 @@ class Auth {
         document.getElementById('appScreen').classList.add('hidden');
         document.getElementById('loadingScreen').classList.remove('hidden');
     }
+
+    // Clear login form
+    static clearLoginForm() {
+        document.getElementById('username').value = '';
+        document.getElementById('password').value = '';
+    }
 }
 
 // Login form handler
@@ -150,7 +162,6 @@ function setupLoginForm() {
         
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
-        const deviceName = document.getElementById('deviceName').value.trim() || CONFIG.APP.DEFAULT_DEVICE_NAME;
         
         if (!username || !password) {
             showAlert('Please fill in all required fields.', 'danger');
@@ -164,28 +175,29 @@ function setupLoginForm() {
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging in...';
         
         try {
-            await Auth.login(username, password, deviceName);
+            const success = await Auth.login(username, password);
+            if (success) {
+                // Clear form on successful login
+                Auth.clearLoginForm();
+            }
         } finally {
             // Re-enable form
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalText;
         }
     });
-}
 
-// Demo login functions
-function fillDemoLogin(type) {
-    const demo = CONFIG.DEMO_ACCOUNTS[type];
-    if (demo) {
-        document.getElementById('username').value = demo.username;
-        document.getElementById('password').value = demo.password;
-        document.getElementById('deviceName').value = demo.deviceName;
-    }
+    // Prevent form autofill
+    loginForm.setAttribute('autocomplete', 'off');
+    document.getElementById('username').setAttribute('autocomplete', 'off');
+    document.getElementById('password').setAttribute('autocomplete', 'new-password');
 }
 
 // Logout function (global)
 function logout() {
-    Auth.logout();
+    if (confirm('Are you sure you want to logout?')) {
+        Auth.logout();
+    }
 }
 
 // Alert system
@@ -305,10 +317,15 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Start session monitoring
     SessionManager.startSessionCheck();
+
+    // Prevent browser from saving passwords
+    window.addEventListener('beforeunload', () => {
+        // Clear sensitive form data before page unload
+        Auth.clearLoginForm();
+    });
 });
 
 // Export Auth class globally
 window.Auth = Auth;
 window.SessionManager = SessionManager;
 window.showAlert = showAlert;
-window.fillDemoLogin = fillDemoLogin;

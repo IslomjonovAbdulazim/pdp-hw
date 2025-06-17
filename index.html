@@ -24,47 +24,25 @@
             
             <div id="loginAlert"></div>
             
-            <form id="loginForm">
+            <form id="loginForm" autocomplete="off">
                 <div class="form-group">
                     <label for="username">
                         <i class="fas fa-user"></i> Username
                     </label>
-                    <input type="text" id="username" class="form-control" required>
+                    <input type="text" id="username" class="form-control" required autocomplete="off">
                 </div>
                 
                 <div class="form-group">
                     <label for="password">
                         <i class="fas fa-lock"></i> Password
                     </label>
-                    <input type="password" id="password" class="form-control" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="deviceName">
-                        <i class="fas fa-desktop"></i> Device Name
-                    </label>
-                    <input type="text" id="deviceName" class="form-control" placeholder="My Computer" required>
+                    <input type="password" id="password" class="form-control" required autocomplete="off">
                 </div>
                 
                 <button type="submit" class="btn btn-primary btn-full">
                     <i class="fas fa-sign-in-alt"></i> Login
                 </button>
             </form>
-            
-            <div class="login-demo">
-                <p>Demo Accounts:</p>
-                <div class="demo-accounts">
-                    <button type="button" class="btn btn-secondary btn-small" onclick="fillDemoLogin('admin')">
-                        Admin Demo
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-small" onclick="fillDemoLogin('teacher')">
-                        Teacher Demo
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-small" onclick="fillDemoLogin('student')">
-                        Student Demo
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -130,18 +108,18 @@
                         
                         <div class="form-group">
                             <label for="testTitle">Assignment Title</label>
-                            <input type="text" id="testTitle" class="form-control" placeholder="e.g., Python Functions Practice">
+                            <input type="text" id="testTitle" class="form-control" placeholder="e.g., Python Functions Practice" autocomplete="off">
                         </div>
                         
                         <div class="form-group">
                             <label for="testDescription">Assignment Description</label>
-                            <textarea id="testDescription" class="form-control" placeholder="Describe what the student should implement..."></textarea>
+                            <textarea id="testDescription" class="form-control" placeholder="Describe what the student should implement..." autocomplete="off"></textarea>
                         </div>
                         
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="testPoints">Total Points</label>
-                                <input type="number" id="testPoints" class="form-control" value="100" min="1" max="1000">
+                                <input type="number" id="testPoints" class="form-control" value="100" min="1" max="1000" autocomplete="off">
                             </div>
                             
                             <div class="form-group">
@@ -161,28 +139,17 @@
                         
                         <div class="form-group">
                             <label for="testCriteria">Grading Criteria</label>
-                            <textarea id="testCriteria" class="form-control" placeholder="Specific criteria for grading this assignment..."></textarea>
+                            <textarea id="testCriteria" class="form-control" placeholder="Specific criteria for grading this assignment..." autocomplete="off"></textarea>
                         </div>
                         
                         <div class="form-group">
                             <label for="testFileName">File Name</label>
-                            <input type="text" id="testFileName" class="form-control" placeholder="e.g., solution.py">
+                            <input type="text" id="testFileName" class="form-control" placeholder="e.g., solution.py" autocomplete="off">
                         </div>
                         
                         <div class="form-group">
                             <label for="testCode">Student Code</label>
-                            <div class="sample-buttons">
-                                <button type="button" class="btn btn-secondary btn-small" onclick="loadSampleCode('python')">
-                                    Python Sample
-                                </button>
-                                <button type="button" class="btn btn-secondary btn-small" onclick="loadSampleCode('javascript')">
-                                    JS Sample
-                                </button>
-                                <button type="button" class="btn btn-secondary btn-small" onclick="loadSampleCode('java')">
-                                    Java Sample
-                                </button>
-                            </div>
-                            <textarea id="testCode" class="form-control code-textarea" placeholder="Paste the student's code here..."></textarea>
+                            <textarea id="testCode" class="form-control code-textarea" placeholder="Paste the student's code here..." autocomplete="off"></textarea>
                         </div>
                         
                         <button type="button" class="btn btn-primary" onclick="testGradeCode()" id="testGradeBtn">

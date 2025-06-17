@@ -210,7 +210,7 @@ class Components {
     // Create form for creating/editing entities
     static createForm(fields, submitText = 'Save', onSubmit = '') {
         return `
-            <form onsubmit="${onSubmit}">
+            <form onsubmit="${onSubmit}" autocomplete="off">
                 ${fields.map(field => {
                     if (field.type === 'textarea') {
                         return `
@@ -218,7 +218,8 @@ class Components {
                                 <label for="${field.name}">${field.label}</label>
                                 <textarea id="${field.name}" name="${field.name}" class="form-control" 
                                          ${field.required ? 'required' : ''}
-                                         placeholder="${field.placeholder || ''}">${field.value || ''}</textarea>
+                                         placeholder="${field.placeholder || ''}"
+                                         autocomplete="off">${field.value || ''}</textarea>
                             </div>
                         `;
                     } else if (field.type === 'select') {
@@ -245,7 +246,8 @@ class Components {
                                        placeholder="${field.placeholder || ''}"
                                        ${field.min ? `min="${field.min}"` : ''}
                                        ${field.max ? `max="${field.max}"` : ''}
-                                       ${field.step ? `step="${field.step}"` : ''}>
+                                       ${field.step ? `step="${field.step}"` : ''}
+                                       autocomplete="off">
                             </div>
                         `;
                     }
@@ -330,26 +332,27 @@ function closeModal() {
 // Test grading modal functions
 function openTestGrading() {
     document.getElementById('testGradingModal').classList.add('active');
-    loadSampleCode('python'); // Load Python sample by default
+    clearTestGradingForm();
 }
 
 function closeTestGrading() {
     document.getElementById('testGradingModal').classList.remove('active');
+    clearTestGradingForm();
 }
 
-function loadSampleCode(type) {
-    const sample = CONFIG.SAMPLE_CODE[type];
-    if (sample) {
-        document.getElementById('testTitle').value = sample.title;
-        document.getElementById('testDescription').value = sample.description;
-        document.getElementById('testCriteria').value = sample.grading_prompt;
-        document.getElementById('testFileName').value = sample.file_name;
-        document.getElementById('testCode').value = sample.code;
-        
-        // Set appropriate language
-        document.getElementById('testLanguage').value = type === 'python' ? '.py' : 
-                                                       type === 'javascript' ? '.js' : '.java';
-    }
+function clearTestGradingForm() {
+    document.getElementById('testTitle').value = '';
+    document.getElementById('testDescription').value = '';
+    document.getElementById('testCriteria').value = '';
+    document.getElementById('testFileName').value = '';
+    document.getElementById('testCode').value = '';
+    document.getElementById('testPoints').value = '100';
+    document.getElementById('testLanguage').value = '.py';
+    document.getElementById('testResults').innerHTML = `
+        <p class="text-center text-muted">
+            👈 Fill in the assignment details and click "Grade This Code!" to see AI feedback
+        </p>
+    `;
 }
 
 async function testGradeCode() {
@@ -450,5 +453,4 @@ window.openModal = openModal;
 window.closeModal = closeModal;
 window.openTestGrading = openTestGrading;
 window.closeTestGrading = closeTestGrading;
-window.loadSampleCode = loadSampleCode;
 window.testGradeCode = testGradeCode;
