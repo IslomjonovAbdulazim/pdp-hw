@@ -1,4 +1,4 @@
-// Main application logic for Homework Management System
+// Main application logic for Homework Management System - Fixed Frontend
 
 class App {
     static currentView = null;
@@ -57,10 +57,20 @@ class App {
                 <i class="${tab.icon}"></i> ${tab.label}
             </button>
         `).join('');
+
+        // Set dashboard as active by default
+        setTimeout(() => {
+            const dashboardTab = document.querySelector('[data-view="dashboard"]');
+            if (dashboardTab) {
+                dashboardTab.classList.add('active');
+            }
+        }, 100);
     }
 
-    // Switch between different views
+    // Switch between different views - FIXED
     static switchView(viewId) {
+        console.log(`Switching to view: ${viewId}`);
+        
         // Update active tab
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.classList.remove('active');
@@ -72,6 +82,10 @@ class App {
 
         // Load view content
         this.currentView = viewId;
+        
+        // Clear any existing alerts
+        const existingAlerts = document.querySelectorAll('.alert');
+        existingAlerts.forEach(alert => alert.remove());
         
         switch (viewId) {
             case 'dashboard':
@@ -98,6 +112,9 @@ class App {
             case 'test':
                 openTestGrading();
                 break;
+            default:
+                console.warn(`Unknown view: ${viewId}`);
+                this.loadDashboard();
         }
     }
 
@@ -115,6 +132,7 @@ class App {
                 await this.loadStudentDashboard();
             }
         } catch (error) {
+            console.error('Dashboard load error:', error);
             contentArea.innerHTML = `
                 <div class="alert alert-danger">
                     <i class="fas fa-exclamation-circle"></i> Error loading dashboard: ${ApiUtils.handleError(error)}
@@ -236,69 +254,89 @@ class App {
 
     // Student Dashboard
     static async loadStudentDashboard() {
-        const [homework, submissions, leaderboard] = await Promise.all([
-            api.getStudentHomework(),
-            api.getStudentSubmissions(5),
-            api.getStudentLeaderboard()
-        ]);
+        try {
+            const [homework, submissions] = await Promise.all([
+                api.getStudentHomework(),
+                api.getStudentSubmissions(5)
+            ]);
 
-        const completedHomework = submissions.length;
-        const averageScore = submissions.length > 0 ? 
-            Math.round(submissions.reduce((sum, s) => sum + s.final_grade, 0) / submissions.length) : 0;
+            // Try to get leaderboard, but don't fail if it doesn't work
+            let leaderboard = null;
+            try {
+                leaderboard = await api.getStudentLeaderboard();
+            } catch (error) {
+                console.warn('Could not load leaderboard:', error);
+            }
 
-        const userRank = leaderboard.leaderboard?.find(s => s.student_name === Auth.getCurrentUser().fullname)?.rank || 'N/A';
+            const completedHomework = submissions.length;
+            const averageScore = submissions.length > 0 ? 
+                Math.round(submissions.reduce((sum, s) => sum + (s.final_grade || 0), 0) / submissions.length) : 0;
 
-        const stats = [
-            { icon: 'fas fa-book', value: homework.length, label: 'Available' },
-            { icon: 'fas fa-check', value: completedHomework, label: 'Completed' },
-            { icon: 'fas fa-chart-line', value: `${averageScore}%`, label: 'Average Score' },
-            { icon: 'fas fa-trophy', value: `#${userRank}`, label: 'Rank' }
-        ];
+            let userRank = 'N/A';
+            if (leaderboard && leaderboard.leaderboard) {
+                const userEntry = leaderboard.leaderboard.find(s => s.student_name === Auth.getCurrentUser().fullname);
+                userRank = userEntry ? `#${userEntry.rank}` : 'N/A';
+            }
 
-        document.getElementById('contentArea').innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title">Student Dashboard</h2>
-                </div>
-                ${Components.createStatsGrid(stats)}
-                
-                <div class="grid grid-2">
-                    <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">Available Homework</h3>
-                            <button class="btn btn-primary btn-small" onclick="App.switchView('homework')">
-                                <i class="fas fa-eye"></i> View All
-                            </button>
-                        </div>
-                        ${homework.slice(0, 3).map(hw => 
-                            Components.createHomeworkItem(hw, [{
-                                icon: 'fas fa-upload',
-                                text: 'Submit',
-                                class: 'btn-success',
-                                onclick: `App.showSubmitHomework(${hw.id})`
-                            }])
-                        ).join('') || '<p class="text-muted text-center">No homework available</p>'}
+            const stats = [
+                { icon: 'fas fa-book', value: homework.length, label: 'Available' },
+                { icon: 'fas fa-check', value: completedHomework, label: 'Completed' },
+                { icon: 'fas fa-chart-line', value: `${averageScore}%`, label: 'Average Score' },
+                { icon: 'fas fa-trophy', value: userRank, label: 'Rank' }
+            ];
+
+            document.getElementById('contentArea').innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Student Dashboard</h2>
                     </div>
+                    ${Components.createStatsGrid(stats)}
                     
-                    <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">Recent Submissions</h3>
-                            <button class="btn btn-primary btn-small" onclick="App.switchView('submissions')">
-                                <i class="fas fa-eye"></i> View All
-                            </button>
+                    <div class="grid grid-2">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3 class="card-title">Available Homework</h3>
+                                <button class="btn btn-primary btn-small" onclick="App.switchView('homework')">
+                                    <i class="fas fa-eye"></i> View All
+                                </button>
+                            </div>
+                            ${homework.slice(0, 3).map(hw => 
+                                Components.createHomeworkItem(hw, [{
+                                    icon: 'fas fa-upload',
+                                    text: 'Submit',
+                                    class: 'btn-success',
+                                    onclick: `App.showSubmitHomework(${hw.id})`
+                                }])
+                            ).join('') || '<p class="text-muted text-center">No homework available</p>'}
                         </div>
-                        ${submissions.slice(0, 3).map(submission => 
-                            Components.createSubmissionItem(submission, [{
-                                icon: 'fas fa-eye',
-                                text: 'View Grade',
-                                class: 'btn-info',
-                                onclick: `App.showGrade(${submission.id})`
-                            }])
-                        ).join('') || '<p class="text-muted text-center">No submissions yet</p>'}
+                        
+                        <div class="card">
+                            <div class="card-header">
+                                <h3 class="card-title">Recent Submissions</h3>
+                                <button class="btn btn-primary btn-small" onclick="App.switchView('submissions')">
+                                    <i class="fas fa-eye"></i> View All
+                                </button>
+                            </div>
+                            ${submissions.slice(0, 3).map(submission => 
+                                Components.createSubmissionItem(submission, [{
+                                    icon: 'fas fa-eye',
+                                    text: 'View Grade',
+                                    class: 'btn-info',
+                                    onclick: `App.showGrade(${submission.id})`
+                                }])
+                            ).join('') || '<p class="text-muted text-center">No submissions yet</p>'}
+                        </div>
                     </div>
                 </div>
-            </div>
-        `;
+            `;
+        } catch (error) {
+            console.error('Student dashboard error:', error);
+            document.getElementById('contentArea').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle"></i> Error loading dashboard: ${ApiUtils.handleError(error)}
+                </div>
+            `;
+        }
     }
 
     // Load Teachers (Admin only)
@@ -415,16 +453,31 @@ class App {
         }
     }
 
-    // Load Groups
+    // Load Groups - Fixed to use correct endpoints based on role
     static async loadGroups() {
         const contentArea = document.getElementById('contentArea');
         contentArea.innerHTML = Components.createLoading('Loading groups...');
 
         try {
-            const [groups, teachers] = await Promise.all([
-                api.getGroups(),
-                Auth.isAdmin() ? api.getTeachers() : []
-            ]);
+            let groups, teachers = [];
+
+            // Use appropriate API endpoint based on user role
+            if (Auth.isAdmin()) {
+                [groups, teachers] = await Promise.all([
+                    api.getGroups(),  // Admin endpoint
+                    api.getTeachers()
+                ]);
+            } else if (Auth.isTeacher()) {
+                groups = await api.getTeacherGroups();  // Teacher endpoint
+            } else {
+                // Students don't have access to groups page
+                contentArea.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> You don't have access to groups management.
+                    </div>
+                `;
+                return;
+            }
             
             contentArea.innerHTML = `
                 <div class="card">
@@ -467,6 +520,12 @@ class App {
                                         text: 'Leaderboard',
                                         class: 'btn-info btn-small',
                                         onclick: `App.showGroupLeaderboard(${group.id})`
+                                    },
+                                    {
+                                        icon: 'fas fa-file-alt',
+                                        text: 'Submissions',
+                                        class: 'btn-success btn-small',
+                                        onclick: `App.showGroupSubmissions(${group.id})`
                                     }
                                 ];
                             }
@@ -482,8 +541,10 @@ class App {
                 </div>
             `;
             
-            // Store teachers for later use
-            this.data.teachers = teachers;
+            // Store teachers for later use (admin only)
+            if (Auth.isAdmin()) {
+                this.data.teachers = teachers;
+            }
         } catch (error) {
             contentArea.innerHTML = `
                 <div class="alert alert-danger">
@@ -648,13 +709,15 @@ class App {
         }
     }
 
-    // Load leaderboard
+    // Load leaderboard - FIXED
     static async loadLeaderboard(period = 'all') {
+        console.log('Loading leaderboard with period:', period);
         const contentArea = document.getElementById('contentArea');
         contentArea.innerHTML = Components.createLoading('Loading leaderboard...');
 
         try {
             const data = await api.getStudentLeaderboard(period);
+            console.log('Leaderboard data:', data);
             
             contentArea.innerHTML = `
                 <div class="card">
@@ -669,15 +732,249 @@ class App {
                             </select>
                         </div>
                     </div>
-                    ${Components.createLeaderboard(data.leaderboard)}
+                    ${Components.createLeaderboard(data.leaderboard || [])}
                 </div>
             `;
         } catch (error) {
+            console.error('Leaderboard error:', error);
             contentArea.innerHTML = `
-                <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-circle"></i> Error loading leaderboard: ${ApiUtils.handleError(error)}
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Class Rankings</h2>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> 
+                        ${error.message.includes('404') || error.message.includes('Not Found') ? 
+                            'No leaderboard data available yet. Complete some homework assignments to see rankings!' : 
+                            `Error loading leaderboard: ${ApiUtils.handleError(error)}`
+                        }
+                    </div>
                 </div>
             `;
+        }
+    }
+
+    // Show group submissions (for teachers)
+    static async showGroupSubmissions(groupId) {
+        try {
+            const submissions = await api.getGroupSubmissions(groupId);
+            
+            const content = `
+                <div class="submissions-list">
+                    <h4>Group Submissions</h4>
+                    ${submissions.length > 0 ? 
+                        submissions.map(submission => 
+                            Components.createSubmissionItem(submission, [{
+                                icon: 'fas fa-eye',
+                                text: 'View Grade',
+                                class: 'btn-info btn-small',
+                                onclick: `App.showTeacherGrade(${submission.id})`
+                            }, {
+                                icon: 'fas fa-edit',
+                                text: 'Edit Grade',
+                                class: 'btn-warning btn-small',
+                                onclick: `App.showEditGrade(${submission.id})`
+                            }])
+                        ).join('') :
+                        '<p class="text-center text-muted">No submissions yet</p>'
+                    }
+                </div>
+            `;
+            
+            openModal('Group Submissions', content, 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Submission Operations - FIXED
+    static showSubmitHomework(homeworkId) {
+        console.log('Showing submit homework modal for:', homeworkId);
+        const content = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> Upload your code files for this assignment. Make sure your code follows the requirements and stays within the line limit.
+            </div>
+            
+            <form onsubmit="App.submitHomework(event, ${homeworkId})" autocomplete="off">
+                <div class="form-group">
+                    <label for="fileName">File Name</label>
+                    <input type="text" id="fileName" name="fileName" class="form-control" required placeholder="e.g. solution.py" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="fileContent">Code Content</label>
+                    <textarea id="fileContent" name="fileContent" class="form-control code-textarea" required placeholder="Paste your code here..." autocomplete="off"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-upload"></i> Submit Homework
+                    </button>
+                    <button type="button" class="btn btn-light" onclick="closeModal()">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
+            </form>
+        `;
+
+        openModal('Submit Homework', content, 'large');
+    }
+
+    static async submitHomework(event, homeworkId) {
+        event.preventDefault();
+        console.log('Submitting homework:', homeworkId);
+        
+        const formData = new FormData(event.target);
+        const submissionData = {
+            files: [{
+                file_name: formData.get('fileName'),
+                content: formData.get('fileContent')
+            }]
+        };
+
+        // Show loading state
+        const submitBtn = event.target.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+
+        try {
+            await api.submitHomework(homeworkId, submissionData);
+            showAlert('Homework submitted successfully! AI grading in progress...', 'success');
+            closeModal();
+            // Refresh the current view
+            if (this.currentView === 'homework') {
+                this.loadHomework();
+            } else if (this.currentView === 'dashboard') {
+                this.loadDashboard();
+            }
+        } catch (error) {
+            console.error('Homework submission error:', error);
+            showAlert(ApiUtils.handleError(error), 'danger');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }
+    }
+
+    // Grade Operations
+    static async showGrade(submissionId) {
+        try {
+            const grade = await api.getStudentSubmissionGrade(submissionId);
+            openModal('Grade Details', Components.createGradeDisplay(grade), 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async showTeacherGrade(submissionId) {
+        try {
+            const grade = await api.getSubmissionGrade(submissionId);
+            openModal('Grade Details', Components.createGradeDisplay(grade), 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async showEditGrade(submissionId) {
+        try {
+            const grade = await api.getSubmissionGrade(submissionId);
+            
+            const fields = [
+                { 
+                    name: 'final_task_completeness', 
+                    label: 'Task Completeness (0-100)', 
+                    type: 'number', 
+                    min: '0', 
+                    max: '100', 
+                    value: grade.final_task_completeness 
+                },
+                { 
+                    name: 'final_code_quality', 
+                    label: 'Code Quality (0-100)', 
+                    type: 'number', 
+                    min: '0', 
+                    max: '100', 
+                    value: grade.final_code_quality 
+                },
+                { 
+                    name: 'final_correctness', 
+                    label: 'Correctness (0-100)', 
+                    type: 'number', 
+                    min: '0', 
+                    max: '100', 
+                    value: grade.final_correctness 
+                }
+            ];
+
+            openModal('Edit Grade', Components.createForm(fields, 'Update Grade', `App.updateGrade(event, ${submissionId})`));
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async updateGrade(event, submissionId) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const gradeData = {
+            final_task_completeness: parseInt(formData.get('final_task_completeness')),
+            final_code_quality: parseInt(formData.get('final_code_quality')),
+            final_correctness: parseInt(formData.get('final_correctness'))
+        };
+
+        try {
+            await api.updateGrade(submissionId, gradeData);
+            showAlert('Grade updated successfully!', 'success');
+            closeModal();
+            this.loadSubmissions();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Utility methods
+    static async showGroupLeaderboard(groupId) {
+        try {
+            let data;
+            if (Auth.isAdmin()) {
+                data = await api.getAdminLeaderboard(groupId);
+            } else {
+                data = await api.getTeacherLeaderboard(groupId);
+            }
+
+            const content = `
+                <div style="margin-bottom: 20px;">
+                    <select onchange="App.changeLeaderboardPeriod(${groupId}, this.value)" class="form-control" style="width: auto; display: inline-block;">
+                        <option value="all">All Time</option>
+                        <option value="month">This Month</option>
+                        <option value="week">This Week</option>
+                        <option value="day">Today</option>
+                    </select>
+                </div>
+                <div id="leaderboardContent">
+                    ${Components.createLeaderboard(data.leaderboard || [])}
+                </div>
+            `;
+
+            openModal(`${data.group_name || 'Group'} Leaderboard`, content, 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async changeLeaderboardPeriod(groupId, period) {
+        try {
+            let data;
+            if (Auth.isAdmin()) {
+                data = await api.getAdminLeaderboard(groupId, period);
+            } else {
+                data = await api.getTeacherLeaderboard(groupId, period);
+            }
+
+            document.getElementById('leaderboardContent').innerHTML = Components.createLeaderboard(data.leaderboard || []);
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
         }
     }
 
@@ -1044,180 +1341,6 @@ class App {
             await api.deleteHomework(homeworkId);
             showAlert('Homework deleted successfully!', 'success');
             this.loadHomework();
-        } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
-        }
-    }
-
-    // Submission Operations
-    static showSubmitHomework(homeworkId) {
-        const content = `
-            <div class="alert alert-info">
-                <i class="fas fa-info-circle"></i> Upload your code files for this assignment. Make sure your code follows the requirements and stays within the line limit.
-            </div>
-            
-            <form onsubmit="App.submitHomework(event, ${homeworkId})">
-                <div class="form-group">
-                    <label for="fileName">File Name</label>
-                    <input type="text" id="fileName" name="fileName" class="form-control" required placeholder="e.g. solution.py">
-                </div>
-                
-                <div class="form-group">
-                    <label for="fileContent">Code Content</label>
-                    <textarea id="fileContent" name="fileContent" class="form-control code-textarea" required placeholder="Paste your code here..."></textarea>
-                </div>
-                
-                <div class="form-group">
-                    <button type="submit" class="btn btn-success">
-                        <i class="fas fa-upload"></i> Submit Homework
-                    </button>
-                    <button type="button" class="btn btn-light" onclick="closeModal()">
-                        <i class="fas fa-times"></i> Cancel
-                    </button>
-                </div>
-            </form>
-        `;
-
-        openModal('Submit Homework', content, 'large');
-    }
-
-    static async submitHomework(event, homeworkId) {
-        event.preventDefault();
-        
-        const formData = new FormData(event.target);
-        const submissionData = {
-            files: [{
-                file_name: formData.get('fileName'),
-                content: formData.get('fileContent')
-            }]
-        };
-
-        try {
-            await api.submitHomework(homeworkId, submissionData);
-            showAlert('Homework submitted successfully! AI grading in progress...', 'success');
-            closeModal();
-            this.loadHomework();
-        } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
-        }
-    }
-
-    // Grade Operations
-    static async showGrade(submissionId) {
-        try {
-            const grade = await api.getStudentSubmissionGrade(submissionId);
-            openModal('Grade Details', Components.createGradeDisplay(grade), 'large');
-        } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
-        }
-    }
-
-    static async showTeacherGrade(submissionId) {
-        try {
-            const grade = await api.getSubmissionGrade(submissionId);
-            openModal('Grade Details', Components.createGradeDisplay(grade), 'large');
-        } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
-        }
-    }
-
-    static async showEditGrade(submissionId) {
-        try {
-            const grade = await api.getSubmissionGrade(submissionId);
-            
-            const fields = [
-                { 
-                    name: 'final_task_completeness', 
-                    label: 'Task Completeness (0-100)', 
-                    type: 'number', 
-                    min: '0', 
-                    max: '100', 
-                    value: grade.final_task_completeness 
-                },
-                { 
-                    name: 'final_code_quality', 
-                    label: 'Code Quality (0-100)', 
-                    type: 'number', 
-                    min: '0', 
-                    max: '100', 
-                    value: grade.final_code_quality 
-                },
-                { 
-                    name: 'final_correctness', 
-                    label: 'Correctness (0-100)', 
-                    type: 'number', 
-                    min: '0', 
-                    max: '100', 
-                    value: grade.final_correctness 
-                }
-            ];
-
-            openModal('Edit Grade', Components.createForm(fields, 'Update Grade', `App.updateGrade(event, ${submissionId})`));
-        } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
-        }
-    }
-
-    static async updateGrade(event, submissionId) {
-        event.preventDefault();
-        
-        const formData = new FormData(event.target);
-        const gradeData = {
-            final_task_completeness: parseInt(formData.get('final_task_completeness')),
-            final_code_quality: parseInt(formData.get('final_code_quality')),
-            final_correctness: parseInt(formData.get('final_correctness'))
-        };
-
-        try {
-            await api.updateGrade(submissionId, gradeData);
-            showAlert('Grade updated successfully!', 'success');
-            closeModal();
-            this.loadSubmissions();
-        } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
-        }
-    }
-
-    // Utility methods
-    static async showGroupLeaderboard(groupId) {
-        try {
-            let data;
-            if (Auth.isAdmin()) {
-                data = await api.getAdminLeaderboard(groupId);
-            } else {
-                data = await api.getTeacherLeaderboard(groupId);
-            }
-
-            const content = `
-                <div style="margin-bottom: 20px;">
-                    <select onchange="App.changeLeaderboardPeriod(${groupId}, this.value)" class="form-control" style="width: auto; display: inline-block;">
-                        <option value="all">All Time</option>
-                        <option value="month">This Month</option>
-                        <option value="week">This Week</option>
-                        <option value="day">Today</option>
-                    </select>
-                </div>
-                <div id="leaderboardContent">
-                    ${Components.createLeaderboard(data.leaderboard)}
-                </div>
-            `;
-
-            openModal(`${data.group_name} Leaderboard`, content, 'large');
-        } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
-        }
-    }
-
-    static async changeLeaderboardPeriod(groupId, period) {
-        try {
-            let data;
-            if (Auth.isAdmin()) {
-                data = await api.getAdminLeaderboard(groupId, period);
-            } else {
-                data = await api.getTeacherLeaderboard(groupId, period);
-            }
-
-            document.getElementById('leaderboardContent').innerHTML = Components.createLeaderboard(data.leaderboard);
         } catch (error) {
             showAlert(ApiUtils.handleError(error), 'danger');
         }

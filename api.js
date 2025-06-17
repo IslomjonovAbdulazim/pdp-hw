@@ -1,4 +1,4 @@
-// API Client for Homework Management System
+// API Client for Homework Management System - Enhanced with Force Login
 
 class ApiClient {
     constructor() {
@@ -29,10 +29,32 @@ class ApiClient {
         return headers;
     }
 
+    // Build complete URL - FIXED VERSION
+    buildUrl(endpoint, params = {}) {
+        // Don't add baseUrl if endpoint already starts with http
+        if (endpoint.startsWith('http')) {
+            return endpoint;
+        }
+        
+        let url = endpoint;
+        
+        // Replace path parameters like {group_id}, {submission_id}
+        for (const [key, value] of Object.entries(params)) {
+            url = url.replace(`{${key}}`, value);
+        }
+        
+        // Ensure endpoint starts with /
+        if (!url.startsWith('/')) {
+            url = '/' + url;
+        }
+        
+        return this.baseUrl + url;
+    }
+
     // Generic request method
     async request(method, endpoint, data = null, params = {}) {
         try {
-            const url = getApiUrl(endpoint, params);
+            const url = this.buildUrl(endpoint, params);
             
             const config = {
                 method: method.toUpperCase(),
@@ -52,9 +74,24 @@ class ApiClient {
                 return { success: true };
             }
 
-            const responseData = await response.json();
+            let responseData;
+            try {
+                responseData = await response.json();
+            } catch (e) {
+                if (response.ok) {
+                    return { success: true };
+                }
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
 
             if (!response.ok) {
+                // For 409 conflicts, include the response data in the error
+                if (response.status === 409) {
+                    const error = new Error(responseData.detail || 'Maximum devices reached');
+                    error.status = 409;
+                    error.data = responseData;
+                    throw error;
+                }
                 throw new Error(responseData.detail || `HTTP error! status: ${response.status}`);
             }
 
@@ -67,7 +104,7 @@ class ApiClient {
 
     // Authentication Methods
     async login(username, password, deviceName) {
-        const data = await this.request('POST', CONFIG.ENDPOINTS.LOGIN, {
+        const data = await this.request('POST', '/auth/login', {
             username,
             password,
             device_name: deviceName
@@ -80,54 +117,70 @@ class ApiClient {
         return data;
     }
 
+    // Force login by kicking out a specific device
+    async forceLogin(username, password, deviceName, sessionIdToRemove) {
+        const data = await this.request('POST', '/auth/login/force', {
+            username,
+            password,
+            device_name: deviceName,
+            logout_session_id: sessionIdToRemove
+        });
+        
+        if (data.access_token) {
+            this.setToken(data.access_token);
+        }
+        
+        return data;
+    }
+
     async logout() {
         try {
-            await this.request('POST', CONFIG.ENDPOINTS.LOGOUT);
+            await this.request('POST', '/auth/logout');
         } finally {
             this.setToken(null);
         }
     }
 
     async getSessions() {
-        return this.request('GET', CONFIG.ENDPOINTS.SESSIONS);
+        return this.request('GET', '/auth/sessions');
     }
 
     async deleteSession(sessionId) {
-        return this.request('DELETE', `${CONFIG.ENDPOINTS.SESSIONS}/${sessionId}`);
+        return this.request('DELETE', `/auth/sessions/${sessionId}`);
     }
 
     // System Methods
     async getHealth() {
-        return this.request('GET', CONFIG.ENDPOINTS.HEALTH);
+        return this.request('GET', '/health');
     }
 
     async getStatus() {
-        return this.request('GET', CONFIG.ENDPOINTS.STATUS);
+        return this.request('GET', '/status');
     }
 
     async getConstants() {
-        return this.request('GET', CONFIG.ENDPOINTS.CONSTANTS);
+        return this.request('GET', '/app/constants');
     }
 
     // Admin Methods
     async getTeachers() {
-        return this.request('GET', CONFIG.ENDPOINTS.ADMIN.TEACHERS);
+        return this.request('GET', '/admin/teachers');
     }
 
     async createTeacher(teacherData) {
-        return this.request('POST', CONFIG.ENDPOINTS.ADMIN.TEACHERS, teacherData);
+        return this.request('POST', '/admin/teachers', teacherData);
     }
 
     async updateTeacher(teacherId, teacherData) {
-        return this.request('PUT', `${CONFIG.ENDPOINTS.ADMIN.TEACHERS}/${teacherId}`, teacherData);
+        return this.request('PUT', `/admin/teachers/${teacherId}`, teacherData);
     }
 
     async deleteTeacher(teacherId) {
-        return this.request('DELETE', `${CONFIG.ENDPOINTS.ADMIN.TEACHERS}/${teacherId}`);
+        return this.request('DELETE', `/admin/teachers/${teacherId}`);
     }
 
     async getStudents(groupId = null) {
-        let endpoint = CONFIG.ENDPOINTS.ADMIN.STUDENTS;
+        let endpoint = '/admin/students';
         if (groupId) {
             endpoint += `?group_id=${groupId}`;
         }
@@ -135,60 +188,60 @@ class ApiClient {
     }
 
     async createStudent(studentData) {
-        return this.request('POST', CONFIG.ENDPOINTS.ADMIN.STUDENTS, studentData);
+        return this.request('POST', '/admin/students', studentData);
     }
 
     async updateStudent(studentId, studentData) {
-        return this.request('PUT', `${CONFIG.ENDPOINTS.ADMIN.STUDENTS}/${studentId}`, studentData);
+        return this.request('PUT', `/admin/students/${studentId}`, studentData);
     }
 
     async deleteStudent(studentId) {
-        return this.request('DELETE', `${CONFIG.ENDPOINTS.ADMIN.STUDENTS}/${studentId}`);
+        return this.request('DELETE', `/admin/students/${studentId}`);
     }
 
     async getGroups() {
-        return this.request('GET', CONFIG.ENDPOINTS.ADMIN.GROUPS);
+        return this.request('GET', '/admin/groups');
     }
 
     async createGroup(groupData) {
-        return this.request('POST', CONFIG.ENDPOINTS.ADMIN.GROUPS, groupData);
+        return this.request('POST', '/admin/groups', groupData);
     }
 
     async updateGroup(groupId, groupData) {
-        return this.request('PUT', `${CONFIG.ENDPOINTS.ADMIN.GROUPS}/${groupId}`, groupData);
+        return this.request('PUT', `/admin/groups/${groupId}`, groupData);
     }
 
     async deleteGroup(groupId) {
-        return this.request('DELETE', `${CONFIG.ENDPOINTS.ADMIN.GROUPS}/${groupId}`);
+        return this.request('DELETE', `/admin/groups/${groupId}`);
     }
 
     async getAdminLeaderboard(groupId, period = 'all') {
-        return this.request('GET', CONFIG.ENDPOINTS.ADMIN.LEADERBOARD, null, { group_id: groupId }) + `?period=${period}`;
+        return this.request('GET', `/admin/groups/${groupId}/leaderboard?period=${period}`);
     }
 
     // Teacher Methods
     async getTeacherHomework() {
-        return this.request('GET', CONFIG.ENDPOINTS.TEACHER.HOMEWORK);
+        return this.request('GET', '/teacher/homework');
     }
 
     async createHomework(homeworkData) {
-        return this.request('POST', CONFIG.ENDPOINTS.TEACHER.HOMEWORK, homeworkData);
+        return this.request('POST', '/teacher/homework', homeworkData);
     }
 
     async updateHomework(homeworkId, homeworkData) {
-        return this.request('PUT', `${CONFIG.ENDPOINTS.TEACHER.HOMEWORK}/${homeworkId}`, homeworkData);
+        return this.request('PUT', `/teacher/homework/${homeworkId}`, homeworkData);
     }
 
     async deleteHomework(homeworkId) {
-        return this.request('DELETE', `${CONFIG.ENDPOINTS.TEACHER.HOMEWORK}/${homeworkId}`);
+        return this.request('DELETE', `/teacher/homework/${homeworkId}`);
     }
 
     async getTeacherGroups() {
-        return this.request('GET', CONFIG.ENDPOINTS.TEACHER.GROUPS);
+        return this.request('GET', '/teacher/groups');
     }
 
     async getGroupSubmissions(groupId, homeworkId = null) {
-        let endpoint = CONFIG.ENDPOINTS.TEACHER.SUBMISSIONS.replace('{group_id}', groupId);
+        let endpoint = `/teacher/groups/${groupId}/submissions`;
         if (homeworkId) {
             endpoint += `?homework_id=${homeworkId}`;
         }
@@ -196,42 +249,41 @@ class ApiClient {
     }
 
     async getTeacherLeaderboard(groupId, period = 'all') {
-        const endpoint = CONFIG.ENDPOINTS.TEACHER.LEADERBOARD.replace('{group_id}', groupId) + `?period=${period}`;
-        return this.request('GET', endpoint);
+        return this.request('GET', `/teacher/groups/${groupId}/leaderboard?period=${period}`);
     }
 
     async updateGrade(submissionId, gradeData) {
-        return this.request('PUT', CONFIG.ENDPOINTS.TEACHER.GRADE, gradeData, { submission_id: submissionId });
+        return this.request('PUT', `/teacher/submissions/${submissionId}/grade`, gradeData);
     }
 
     async getSubmissionGrade(submissionId) {
-        return this.request('GET', CONFIG.ENDPOINTS.TEACHER.GRADE, null, { submission_id: submissionId });
+        return this.request('GET', `/teacher/submissions/${submissionId}/grade`);
     }
 
     // Student Methods
     async getStudentHomework() {
-        return this.request('GET', CONFIG.ENDPOINTS.STUDENT.HOMEWORK);
+        return this.request('GET', '/student/homework');
     }
 
     async submitHomework(homeworkId, submissionData) {
-        return this.request('POST', CONFIG.ENDPOINTS.STUDENT.SUBMIT, submissionData, { homework_id: homeworkId });
+        return this.request('POST', `/student/homework/${homeworkId}/submit`, submissionData);
     }
 
     async getStudentSubmissions(limit = 20) {
-        return this.request('GET', `${CONFIG.ENDPOINTS.STUDENT.SUBMISSIONS}?limit=${limit}`);
+        return this.request('GET', `/student/submissions?limit=${limit}`);
     }
 
     async getStudentLeaderboard(period = 'all') {
-        return this.request('GET', `${CONFIG.ENDPOINTS.STUDENT.LEADERBOARD}?period=${period}`);
+        return this.request('GET', `/student/leaderboard?period=${period}`);
     }
 
     async getStudentSubmissionGrade(submissionId) {
-        return this.request('GET', CONFIG.ENDPOINTS.STUDENT.GRADE, null, { submission_id: submissionId });
+        return this.request('GET', `/student/submissions/${submissionId}/grade`);
     }
 
     // Test Grading Methods
     async testGrading(testData) {
-        return this.request('POST', CONFIG.ENDPOINTS.TEST_GRADING, testData);
+        return this.request('POST', '/test/test-grading', testData);
     }
 }
 
@@ -262,23 +314,31 @@ class ApiUtils {
     }
 
     static formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        } catch (e) {
+            return dateString;
+        }
     }
 
     static formatRelativeTime(dateString) {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffMs = now - date;
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMins / 60);
-        const diffDays = Math.floor(diffHours / 24);
+        try {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
 
-        if (diffMins < 1) return 'just now';
-        if (diffMins < 60) return `${diffMins} minutes ago`;
-        if (diffHours < 24) return `${diffHours} hours ago`;
-        if (diffDays < 7) return `${diffDays} days ago`;
-        return this.formatDate(dateString);
+            if (diffMins < 1) return 'just now';
+            if (diffMins < 60) return `${diffMins} minutes ago`;
+            if (diffHours < 24) return `${diffHours} hours ago`;
+            if (diffDays < 7) return `${diffDays} days ago`;
+            return this.formatDate(dateString);
+        } catch (e) {
+            return dateString;
+        }
     }
 
     static getScoreColor(score) {
