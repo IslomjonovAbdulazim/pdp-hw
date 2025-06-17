@@ -1,4 +1,4 @@
-// Enhanced API Client with Complete Device Management Support
+// Enhanced API Client with Fixed Device Management Support
 
 class ApiClient {
     constructor() {
@@ -8,7 +8,7 @@ class ApiClient {
         this.retryAttempts = 2;
     }
 
-    // Set authentication token with enhanced validation
+    // Set authentication token
     setToken(token) {
         this.token = token;
         if (token) {
@@ -20,7 +20,7 @@ class ApiClient {
         }
     }
 
-    // Get authentication headers with enhanced security
+    // Get authentication headers
     getHeaders(contentType = 'application/json') {
         const headers = {
             'Content-Type': contentType,
@@ -36,9 +36,8 @@ class ApiClient {
         return headers;
     }
 
-    // Build complete URL with enhanced parameter handling
+    // Build complete URL
     buildUrl(endpoint, params = {}) {
-        // Handle full URLs
         if (endpoint.startsWith('http')) {
             return endpoint;
         }
@@ -50,7 +49,6 @@ class ApiClient {
             url = url.replace(`{${key}}`, encodeURIComponent(value));
         }
         
-        // Ensure endpoint starts with /
         if (!url.startsWith('/')) {
             url = '/' + url;
         }
@@ -58,7 +56,7 @@ class ApiClient {
         return this.baseUrl + url;
     }
 
-    // Enhanced request method with comprehensive error handling
+    // Enhanced request method
     async request(method, endpoint, data = null, params = {}) {
         let attempt = 0;
         let lastError;
@@ -99,7 +97,6 @@ class ApiClient {
                         responseData = { message: 'Invalid JSON response' };
                     }
                 } else {
-                    // Handle non-JSON responses
                     const textContent = await response.text();
                     responseData = { message: textContent || 'No content' };
                 }
@@ -126,7 +123,6 @@ class ApiClient {
                 // Handle authentication errors
                 if (response.status === 401) {
                     console.warn('🔐 Authentication failed');
-                    // Clear invalid token
                     this.setToken(null);
                     
                     const authError = new Error('Authentication required. Please log in again.');
@@ -197,7 +193,7 @@ class ApiClient {
                 
                 // Wait before retry (exponential backoff)
                 if (attempt <= this.retryAttempts) {
-                    const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s...
+                    const delay = Math.pow(2, attempt) * 1000;
                     console.log(`⏳ Retrying in ${delay}ms...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
@@ -234,19 +230,21 @@ class ApiClient {
         }
     }
 
-    // Enhanced force login with comprehensive error handling
-    async forceLogin(username, password, deviceName, sessionIdToRemove) {
-        console.log(`🔄 Force login: ${username} on ${deviceName}, removing session ${sessionIdToRemove}`);
+    // Enhanced force login with device fingerprint
+    async forceLogin(username, password, deviceName, deviceFingerprint) {
+        console.log(`🔄 Force login: ${username} on ${deviceName}, removing device ${deviceFingerprint}`);
+        
+        // Use query parameter for device fingerprint
+        const endpoint = `/auth/login/force?device_fingerprint=${encodeURIComponent(deviceFingerprint)}`;
         
         const forceLoginData = {
             username: username.trim(),
             password: password,
-            device_name: deviceName,
-            logout_session_id: parseInt(sessionIdToRemove)
+            device_name: deviceName
         };
 
         try {
-            const response = await this.request('POST', '/auth/login/force', forceLoginData);
+            const response = await this.request('POST', endpoint, forceLoginData);
             
             if (response.access_token) {
                 this.setToken(response.access_token);
@@ -273,10 +271,16 @@ class ApiClient {
         }
     }
 
-    // Get user sessions with enhanced information
+    // Get user sessions
     async getSessions() {
         console.log('📋 Fetching user sessions...');
         return this.request('GET', '/auth/sessions');
+    }
+
+    // Get user devices (new endpoint)
+    async getDevices() {
+        console.log('📱 Fetching user devices...');
+        return this.request('GET', '/auth/devices');
     }
 
     // Delete specific session
@@ -285,7 +289,13 @@ class ApiClient {
         return this.request('DELETE', `/auth/sessions/${sessionId}`);
     }
 
-    // Health check with enhanced diagnostics
+    // Delete specific device (new endpoint)
+    async deleteDevice(deviceFingerprint) {
+        console.log(`🗑️ Deleting device ${deviceFingerprint}...`);
+        return this.request('DELETE', `/auth/devices/${deviceFingerprint}`);
+    }
+
+    // Health check
     async getHealth() {
         try {
             const response = await this.request('GET', '/health');
@@ -307,7 +317,7 @@ class ApiClient {
         return this.request('GET', '/app/constants');
     }
 
-    // Admin Methods with enhanced logging
+    // Admin Methods
     async getTeachers() {
         console.log('👨‍🏫 Fetching teachers...');
         return this.request('GET', '/admin/teachers');
@@ -594,8 +604,8 @@ class ApiUtils {
     }
 }
 
-// Create global instances with enhanced configuration
+// Create global instances
 window.api = new ApiClient();
 window.ApiUtils = ApiUtils;
 
-console.log('🌐 Enhanced API Client initialized with device management support');
+console.log('🌐 Enhanced API Client initialized with fixed device management support');

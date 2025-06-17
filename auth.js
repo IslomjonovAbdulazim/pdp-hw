@@ -1,16 +1,16 @@
-// Fixed Authentication module with comprehensive error handling and debugging
+// Fixed Authentication module with proper device management
 
 class Auth {
     static currentUser = null;
     static deviceConflictData = null;
     static initializationComplete = false;
 
-    // Initialize authentication with enhanced error handling
+    // Initialize authentication
     static init() {
         console.log('🔄 Starting authentication initialization...');
         
         try {
-            // Check for existing session with validation
+            // Check for existing session
             const userData = localStorage.getItem(CONFIG.APP.USER_STORAGE_KEY);
             const token = localStorage.getItem('auth_token');
 
@@ -25,7 +25,7 @@ class Auth {
                     api.setToken(token);
                     console.log('✅ Restored user session:', this.currentUser);
                     
-                    // Validate session in background (don't block UI)
+                    // Validate session in background
                     this.validateStoredSession().catch(error => {
                         console.warn('⚠️ Background session validation failed:', error);
                     });
@@ -41,7 +41,7 @@ class Auth {
             console.log('✅ Authentication initialization complete');
         } catch (error) {
             console.error('❌ Critical error during authentication initialization:', error);
-            this.initializationComplete = true; // Prevent infinite loading
+            this.initializationComplete = true;
             this.clearStoredSession();
         }
     }
@@ -61,7 +61,7 @@ class Auth {
         }
     }
 
-    // Validate that stored session is still active (background task)
+    // Validate stored session
     static async validateStoredSession() {
         try {
             console.log('🔍 Validating stored session...');
@@ -69,290 +69,46 @@ class Auth {
             console.log('✅ Session validation successful');
             return true;
         } catch (error) {
-            console.warn('⚠️ Stored session invalid, will logout on next action:', error);
-            // Don't immediately logout - wait for user action to avoid disrupting UX
+            console.warn('⚠️ Stored session invalid:', error);
             return false;
         }
     }
 
-    // Enhanced login with comprehensive device management
-    static async login(username, password) {
-        console.log(`🔐 Login attempt for: ${username}`);
-        
+    // Generate enhanced device fingerprint
+    static generateDeviceFingerprint() {
         try {
-            showAlert('🔐 Authenticating credentials...', 'info');
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.fillText('Device fingerprint', 2, 2);
             
-            // Get device name automatically with enhanced detection
-            const deviceName = this.getEnhancedDeviceName();
-            console.log(`📱 Device: ${deviceName}`);
+            const fingerprint = {
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                platform: navigator.platform,
+                screenResolution: `${screen.width}x${screen.height}`,
+                colorDepth: screen.colorDepth,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                canvas: canvas.toDataURL(),
+                cookieEnabled: navigator.cookieEnabled,
+                doNotTrack: navigator.doNotTrack
+            };
             
-            const response = await api.login(username, password, deviceName);
+            const fingerprintString = JSON.stringify(fingerprint);
             
-            if (response.access_token && response.user) {
-                this.currentUser = response.user;
-                
-                // Store user data with enhanced metadata
-                const sessionData = {
-                    ...response.user,
-                    loginTime: new Date().toISOString(),
-                    deviceName: deviceName,
-                    sessionId: response.session_info?.session_id
-                };
-                
-                localStorage.setItem(CONFIG.APP.USER_STORAGE_KEY, JSON.stringify(sessionData));
-                
-                console.log('✅ User logged in successfully:', this.currentUser);
-                
-                // Show personalized welcome message
-                const timeOfDay = this.getTimeOfDay();
-                showAlert(`🎉 ${timeOfDay}, ${this.currentUser.fullname}! Welcome back.`, 'success');
-                
-                // Redirect to app
-                this.showApp();
-                
-                return true;
-            } else {
-                throw new Error('Invalid login response structure');
+            // Simple hash function
+            let hash = 0;
+            for (let i = 0; i < fingerprintString.length; i++) {
+                const char = fingerprintString.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash; // Convert to 32-bit integer
             }
+            
+            return Math.abs(hash).toString(16);
         } catch (error) {
-            console.error('🚫 Login error:', error);
-            
-            // Enhanced error handling for device conflicts
-            if (error.status === 409 || error.message.includes('Maximum devices reached')) {
-                console.log('📱 Device limit reached, handling conflict...');
-                
-                // Parse the detailed conflict response
-                if (error.data && error.data.active_sessions) {
-                    this.deviceConflictData = {
-                        username,
-                        password,
-                        conflictInfo: error.data
-                    };
-                    
-                    this.showRealDeviceConflictModal();
-                    return false;
-                } else {
-                    // Fallback for older API responses
-                    this.showGenericDeviceConflictModal(username, password);
-                    return false;
-                }
-            }
-            
-            // Handle other login errors
-            const message = ApiUtils.handleError(error);
-            showAlert(`🚫 Login failed: ${message}`, 'danger');
-            return false;
-        }
-    }
-
-    // Show device conflict modal with real session data
-    static showRealDeviceConflictModal() {
-        const data = this.deviceConflictData;
-        const conflictInfo = data.conflictInfo;
-        
-        console.log('📋 Showing device conflict modal with real data:', conflictInfo);
-        
-        const modalContent = `
-            <div class="device-conflict-modal">
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <strong>Device Limit Reached!</strong>
-                    <p>${conflictInfo.message}</p>
-                    <p class="device-limit-info">
-                        <strong>${conflictInfo.current_devices}/${conflictInfo.max_devices}</strong> devices are currently logged in as <strong>${conflictInfo.username}</strong>
-                    </p>
-                </div>
-                
-                <div class="help-text">
-                    <i class="fas fa-info-circle"></i>
-                    ${conflictInfo.help_text}
-                </div>
-                
-                <div class="devices-container">
-                    <h4>📱 Your Active Devices</h4>
-                    <div class="devices-grid" id="realDevicesList">
-                        ${this.renderActiveDevices(conflictInfo.active_sessions)}
-                    </div>
-                </div>
-                
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-light" onclick="Auth.cancelDeviceConflict()">
-                        <i class="fas fa-times"></i> Cancel Login
-                    </button>
-                    <button type="button" class="btn btn-info" onclick="Auth.refreshDeviceList()">
-                        <i class="fas fa-sync"></i> Refresh List
-                    </button>
-                </div>
-            </div>
-        `;
-
-        openModal('🔐 Device Management Required', modalContent, 'large');
-    }
-
-    // Show generic device conflict modal as fallback
-    static showGenericDeviceConflictModal(username, password) {
-        console.log('📋 Showing generic device conflict modal');
-        
-        const modalContent = `
-            <div class="device-conflict-modal">
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <strong>Maximum devices reached!</strong>
-                    <p>You can only be logged in on 3 devices at once. Please log out from one of your other devices and try again.</p>
-                </div>
-                
-                <div class="help-text">
-                    <i class="fas fa-info-circle"></i>
-                    To continue, please log out from one of your other devices (phone, tablet, other computers) and try logging in again.
-                </div>
-                
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-light" onclick="Auth.cancelDeviceConflict()">
-                        <i class="fas fa-times"></i> Cancel
-                    </button>
-                    <button type="button" class="btn btn-primary" onclick="Auth.retryLogin('${username}', '${password}')">
-                        <i class="fas fa-retry"></i> Try Again
-                    </button>
-                </div>
-            </div>
-        `;
-
-        openModal('🔐 Device Limit Reached', modalContent);
-    }
-
-    // Retry login after user presumably logged out from another device
-    static async retryLogin(username, password) {
-        closeModal();
-        return await this.login(username, password);
-    }
-
-    // Render active devices with enhanced information
-    static renderActiveDevices(sessions) {
-        if (!sessions || sessions.length === 0) {
-            return '<p class="text-center text-muted">No active sessions found.</p>';
-        }
-
-        return sessions.map(session => {
-            const deviceIcon = this.getDeviceIcon(session.device_type, session.browser);
-            const statusClass = session.is_suspicious ? 'device-suspicious' : 'device-normal';
-            const timeAgo = this.getTimeAgo(session.last_login);
-            const location = session.location !== 'Unknown' ? session.location : session.ip_address;
-            
-            return `
-                <div class="device-card ${statusClass}" data-session-id="${session.id}">
-                    <div class="device-header">
-                        <div class="device-icon">
-                            ${deviceIcon}
-                        </div>
-                        <div class="device-info">
-                            <div class="device-name">${session.device_name}</div>
-                            <div class="device-meta">
-                                <span class="device-type">${session.device_type}</span>
-                                <span class="device-browser">${session.browser}</span>
-                                <span class="device-os">${session.operating_system || 'Unknown OS'}</span>
-                            </div>
-                        </div>
-                        ${session.is_suspicious ? '<div class="suspicious-badge">⚠️ Suspicious</div>' : ''}
-                    </div>
-                    
-                    <div class="device-details">
-                        <div class="detail-row">
-                            <span class="detail-label">📍 Location:</span>
-                            <span class="detail-value">${location}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">🕒 Last Active:</span>
-                            <span class="detail-value">${timeAgo}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">⏰ Expires:</span>
-                            <span class="detail-value">${this.getTimeAgo(session.expires_at)}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="device-actions">
-                        <button class="btn btn-danger btn-full device-action" 
-                                onclick="Auth.forceLoginByTerminating(${session.id})"
-                                data-session-id="${session.id}">
-                            <i class="fas fa-sign-out-alt"></i> 
-                            Log out this device & continue
-                        </button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // Force login by terminating specific session
-    static async forceLoginByTerminating(sessionId) {
-        if (!this.deviceConflictData) {
-            showAlert('🚫 Session data not available. Please try logging in again.', 'danger');
-            return;
-        }
-
-        const data = this.deviceConflictData;
-        
-        try {
-            // Show loading state on the specific button
-            const button = document.querySelector(`[data-session-id="${sessionId}"]`);
-            if (button) {
-                button.disabled = true;
-                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging out device...';
-            }
-
-            console.log(`🔄 Force login: terminating session ${sessionId} for ${data.username}`);
-            
-            showAlert('🔄 Terminating selected device and logging you in...', 'info');
-            
-            // Get enhanced device name for new session
-            const deviceName = this.getEnhancedDeviceName();
-            
-            // Make force login API call with proper parameters
-            const response = await api.forceLogin(data.username, data.password, deviceName, sessionId);
-            
-            if (response.access_token && response.user) {
-                this.currentUser = response.user;
-                
-                // Store enhanced session data
-                const sessionData = {
-                    ...response.user,
-                    loginTime: new Date().toISOString(),
-                    deviceName: deviceName,
-                    sessionId: response.session_info?.session_id,
-                    forcedLogin: true,
-                    terminatedSession: sessionId
-                };
-                
-                localStorage.setItem(CONFIG.APP.USER_STORAGE_KEY, JSON.stringify(sessionData));
-                
-                console.log('✅ Force login successful:', this.currentUser);
-                
-                // Clear conflict data
-                this.deviceConflictData = null;
-                
-                // Close modal and show success
-                closeModal();
-                showAlert(`🎉 Welcome back, ${this.currentUser.fullname}! Previous device has been logged out.`, 'success');
-                
-                // Redirect to app
-                this.showApp();
-                
-                return true;
-            } else {
-                throw new Error('Invalid force login response');
-            }
-        } catch (error) {
-            console.error('🚫 Force login error:', error);
-            showAlert(`🚫 Force login failed: ${ApiUtils.handleError(error)}`, 'danger');
-            
-            // Restore button state
-            const button = document.querySelector(`[data-session-id="${sessionId}"]`);
-            if (button) {
-                button.disabled = false;
-                button.innerHTML = '<i class="fas fa-sign-out-alt"></i> Log out this device & continue';
-            }
-            
-            return false;
+            console.warn('⚠️ Error generating device fingerprint:', error);
+            return 'unknown-device';
         }
     }
 
@@ -377,7 +133,7 @@ class Auth {
                 browser = 'Opera';
             }
             
-            // Detect OS with more detail
+            // Detect OS
             let os = 'Unknown OS';
             if (userAgent.includes('Windows NT 10.0')) os = 'Windows 10';
             else if (userAgent.includes('Windows NT 6.3')) os = 'Windows 8.1';
@@ -399,11 +155,342 @@ class Auth {
             if (/Mobi|Android/i.test(userAgent)) deviceType = 'Mobile';
             else if (/Tablet|iPad/i.test(userAgent)) deviceType = 'Tablet';
             
-            return `${browser} on ${os} (${deviceType})`;
+            // Add device fingerprint to make it more unique
+            const fingerprint = this.generateDeviceFingerprint();
+            
+            return `${browser} on ${os} (${deviceType}) [${fingerprint.substring(0, 8)}]`;
         } catch (error) {
             console.error('❌ Error detecting device name:', error);
             return 'Unknown Device';
         }
+    }
+
+    // Enhanced login with proper device management
+    static async login(username, password) {
+        console.log(`🔐 Login attempt for: ${username}`);
+        
+        try {
+            showAlert('🔐 Authenticating credentials...', 'info');
+            
+            // Get enhanced device name
+            const deviceName = this.getEnhancedDeviceName();
+            console.log(`📱 Device: ${deviceName}`);
+            
+            const response = await api.login(username, password, deviceName);
+            
+            if (response.access_token && response.user) {
+                this.currentUser = response.user;
+                
+                // Store user data with enhanced metadata
+                const sessionData = {
+                    ...response.user,
+                    loginTime: new Date().toISOString(),
+                    deviceName: deviceName,
+                    sessionInfo: response.session_info
+                };
+                
+                localStorage.setItem(CONFIG.APP.USER_STORAGE_KEY, JSON.stringify(sessionData));
+                
+                console.log('✅ User logged in successfully:', this.currentUser);
+                
+                // Show personalized welcome message
+                const timeOfDay = this.getTimeOfDay();
+                const deviceMsg = response.session_info?.is_existing_device ? 
+                    'Welcome back from this device!' : 'New device detected and registered.';
+                
+                showAlert(`🎉 ${timeOfDay}, ${this.currentUser.fullname}! ${deviceMsg}`, 'success');
+                
+                // Redirect to app
+                this.showApp();
+                
+                return true;
+            } else {
+                throw new Error('Invalid login response structure');
+            }
+        } catch (error) {
+            console.error('🚫 Login error:', error);
+            
+            // Enhanced error handling for device conflicts
+            if (error.status === 409 || error.message.includes('Maximum devices reached')) {
+                console.log('📱 Device limit reached, handling conflict...');
+                
+                // Store conflict data from the detailed API response
+                if (error.data) {
+                    this.deviceConflictData = {
+                        username,
+                        password,
+                        conflictInfo: error.data
+                    };
+                    
+                    this.showDeviceConflictModal();
+                    return false;
+                } else {
+                    // Fallback for unexpected response format
+                    this.showGenericDeviceConflictModal(username, password);
+                    return false;
+                }
+            }
+            
+            // Handle other login errors
+            const message = ApiUtils.handleError(error);
+            showAlert(`🚫 Login failed: ${message}`, 'danger');
+            return false;
+        }
+    }
+
+    // Show device conflict modal with real device data
+    static showDeviceConflictModal() {
+        const data = this.deviceConflictData;
+        const conflictInfo = data.conflictInfo;
+        
+        console.log('📋 Showing device conflict modal with data:', conflictInfo);
+        
+        const modalContent = `
+            <div class="device-conflict-modal">
+                <div class="alert alert-warning device-conflict">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Device Limit Reached!</strong>
+                    <p>${conflictInfo.message}</p>
+                    <div class="device-limit-info">
+                        You have <strong>${conflictInfo.current_devices}/${conflictInfo.max_devices}</strong> devices logged in as <strong>${conflictInfo.username}</strong>
+                    </div>
+                </div>
+                
+                <div class="help-text">
+                    <i class="fas fa-info-circle"></i>
+                    ${conflictInfo.help_text}
+                </div>
+                
+                <div class="devices-container">
+                    <h4>📱 Your Active Devices</h4>
+                    <div class="devices-grid" id="devicesGrid">
+                        ${this.renderActiveDevices(conflictInfo.active_sessions)}
+                    </div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-light" onclick="Auth.cancelDeviceConflict()">
+                        <i class="fas fa-times"></i> Cancel Login
+                    </button>
+                    <button type="button" class="btn btn-info" onclick="Auth.refreshDeviceList()">
+                        <i class="fas fa-sync"></i> Refresh List
+                    </button>
+                </div>
+            </div>
+        `;
+
+        openModal('🔐 Device Management Required', modalContent, 'large');
+    }
+
+    // Render active devices with enhanced information
+    static renderActiveDevices(devices) {
+        if (!devices || devices.length === 0) {
+            return '<p class="text-center text-muted">No active devices found.</p>';
+        }
+
+        return devices.map(device => {
+            const deviceIcon = this.getDeviceIcon(device.device_type, device.browser);
+            const statusClass = device.is_suspicious ? 'device-suspicious' : 'device-normal';
+            const timeAgo = this.getTimeAgo(device.last_login);
+            const location = device.location !== 'Unknown' ? device.location : device.ip_address;
+            
+            return `
+                <div class="device-card ${statusClass}" data-fingerprint="${device.fingerprint}">
+                    <div class="device-header">
+                        <div class="device-icon">
+                            ${deviceIcon}
+                        </div>
+                        <div class="device-info">
+                            <div class="device-name">${device.device_name}</div>
+                            <div class="device-meta">
+                                <span class="device-type">${device.device_type}</span>
+                                <span class="device-browser">${device.browser}</span>
+                                <span class="device-os">${device.operating_system}</span>
+                            </div>
+                        </div>
+                        ${device.is_suspicious ? '<div class="suspicious-badge">⚠️ Suspicious</div>' : ''}
+                    </div>
+                    
+                    <div class="device-details">
+                        <div class="detail-row">
+                            <span class="detail-label">📍 Location:</span>
+                            <span class="detail-value">${location}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">🕒 Last Active:</span>
+                            <span class="detail-value">${timeAgo}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">📱 Sessions:</span>
+                            <span class="detail-value">${device.session_count} active</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">⏰ Expires:</span>
+                            <span class="detail-value">${this.getTimeAgo(device.expires_at)}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="device-actions">
+                        <button class="btn btn-danger btn-full device-action" 
+                                onclick="Auth.forceLoginByTerminating('${device.fingerprint}')"
+                                data-fingerprint="${device.fingerprint}">
+                            <i class="fas fa-sign-out-alt"></i> 
+                            Log out this device & continue
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Force login by terminating specific device
+    static async forceLoginByTerminating(deviceFingerprint) {
+        if (!this.deviceConflictData) {
+            showAlert('🚫 Session data not available. Please try logging in again.', 'danger');
+            return;
+        }
+
+        const data = this.deviceConflictData;
+        
+        try {
+            // Show loading state on the specific button
+            const button = document.querySelector(`[data-fingerprint="${deviceFingerprint}"]`);
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging out device...';
+            }
+
+            console.log(`🔄 Force login: terminating device ${deviceFingerprint} for ${data.username}`);
+            
+            showAlert('🔄 Terminating selected device and logging you in...', 'info');
+            
+            // Get enhanced device name for new session
+            const deviceName = this.getEnhancedDeviceName();
+            
+            // Make force login API call
+            const response = await api.forceLogin(data.username, data.password, deviceName, deviceFingerprint);
+            
+            if (response.access_token && response.user) {
+                this.currentUser = response.user;
+                
+                // Store enhanced session data
+                const sessionData = {
+                    ...response.user,
+                    loginTime: new Date().toISOString(),
+                    deviceName: deviceName,
+                    sessionInfo: response.session_info,
+                    forcedLogin: true,
+                    terminatedDevice: deviceFingerprint
+                };
+                
+                localStorage.setItem(CONFIG.APP.USER_STORAGE_KEY, JSON.stringify(sessionData));
+                
+                console.log('✅ Force login successful:', this.currentUser);
+                
+                // Clear conflict data
+                this.deviceConflictData = null;
+                
+                // Close modal and show success
+                closeModal();
+                showAlert(
+                    `🎉 Welcome back, ${this.currentUser.fullname}! Previous device has been logged out. (${response.session_info?.terminated_sessions || 0} sessions terminated)`, 
+                    'success'
+                );
+                
+                // Redirect to app
+                this.showApp();
+                
+                return true;
+            } else {
+                throw new Error('Invalid force login response');
+            }
+        } catch (error) {
+            console.error('🚫 Force login error:', error);
+            showAlert(`🚫 Force login failed: ${ApiUtils.handleError(error)}`, 'danger');
+            
+            // Restore button state
+            const button = document.querySelector(`[data-fingerprint="${deviceFingerprint}"]`);
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-sign-out-alt"></i> Log out this device & continue';
+            }
+            
+            return false;
+        }
+    }
+
+    // Refresh device list
+    static async refreshDeviceList() {
+        try {
+            const data = this.deviceConflictData;
+            showAlert('🔄 Refreshing device list...', 'info');
+            
+            // Re-attempt login to get updated conflict info
+            const response = await api.login(data.username, data.password, this.getEnhancedDeviceName());
+            
+            // This should trigger a new conflict if devices are still at limit
+            showAlert('✅ Device list refreshed', 'success');
+            
+        } catch (error) {
+            if (error.status === 409 && error.data) {
+                // Update conflict data with fresh info
+                this.deviceConflictData.conflictInfo = error.data;
+                
+                // Re-render devices
+                const devicesGrid = document.getElementById('devicesGrid');
+                if (devicesGrid) {
+                    devicesGrid.innerHTML = this.renderActiveDevices(error.data.active_sessions);
+                }
+                
+                showAlert('✅ Device list refreshed', 'success');
+            } else {
+                showAlert('❌ Failed to refresh device list', 'danger');
+            }
+        }
+    }
+
+    // Show generic device conflict modal as fallback
+    static showGenericDeviceConflictModal(username, password) {
+        console.log('📋 Showing generic device conflict modal');
+        
+        const modalContent = `
+            <div class="device-conflict-modal">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Maximum devices reached!</strong>
+                    <p>You can only be logged in on 3 devices at once. Please log out from one of your other devices and try again.</p>
+                </div>
+                
+                <div class="help-text">
+                    <i class="fas fa-info-circle"></i>
+                    To continue, please log out from one of your other devices and try logging in again.
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-light" onclick="Auth.cancelDeviceConflict()">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="Auth.retryLogin('${username}', '${password}')">
+                        <i class="fas fa-redo"></i> Try Again
+                    </button>
+                </div>
+            </div>
+        `;
+
+        openModal('🔐 Device Limit Reached', modalContent);
+    }
+
+    // Retry login after user presumably logged out from another device
+    static async retryLogin(username, password) {
+        closeModal();
+        return await this.login(username, password);
+    }
+
+    // Cancel device conflict and return to login
+    static cancelDeviceConflict() {
+        this.deviceConflictData = null;
+        closeModal();
+        showAlert('Login cancelled. You can try again or log out from one of your devices manually.', 'info');
     }
 
     // Get device icon based on type and browser
@@ -427,35 +514,20 @@ class Auth {
             }
             
             // Browser icons
-            switch (browser?.toLowerCase()) {
-                case 'chrome':
-                    browserIcon = '🔴';
-                    break;
-                case 'firefox':
-                    browserIcon = '🦊';
-                    break;
-                case 'safari':
-                    browserIcon = '🧭';
-                    break;
-                case 'edge':
-                    browserIcon = '🔵';
-                    break;
-                default:
-                    browserIcon = '🌐';
-                    break;
+            if (browser?.toLowerCase().includes('chrome')) {
+                browserIcon = '🔴';
+            } else if (browser?.toLowerCase().includes('firefox')) {
+                browserIcon = '🦊';
+            } else if (browser?.toLowerCase().includes('safari')) {
+                browserIcon = '🧭';
+            } else if (browser?.toLowerCase().includes('edge')) {
+                browserIcon = '🔵';
             }
         } catch (error) {
             console.error('❌ Error getting device icon:', error);
         }
         
         return `<span class="device-icon-combo">${deviceIcon}${browserIcon}</span>`;
-    }
-
-    // Cancel device conflict and return to login
-    static cancelDeviceConflict() {
-        this.deviceConflictData = null;
-        closeModal();
-        showAlert('Login cancelled. You can try again or log out from one of your devices manually.', 'info');
     }
 
     // Enhanced logout with session cleanup
@@ -522,7 +594,7 @@ class Auth {
         return this.hasRole('student');
     }
 
-    // Show login screen with enhanced UI
+    // Show login screen
     static showLogin() {
         console.log('🔐 Showing login screen');
         try {
@@ -545,7 +617,7 @@ class Auth {
         }
     }
 
-    // Show main app with initialization
+    // Show main app
     static showApp() {
         console.log('🚀 Showing main application');
         try {
@@ -553,7 +625,7 @@ class Auth {
             document.getElementById('loginScreen').classList.add('hidden');
             document.getElementById('appScreen').classList.remove('hidden');
             
-            // Initialize app with user context
+            // Initialize app
             if (window.App && typeof App.init === 'function') {
                 App.init();
             } else {
@@ -578,7 +650,7 @@ class Auth {
         }
     }
 
-    // Clear login form with security considerations
+    // Clear login form
     static clearLoginForm() {
         try {
             const usernameField = document.getElementById('username');
@@ -624,7 +696,7 @@ class Auth {
     }
 }
 
-// Enhanced login form handler with better UX and error handling
+// Enhanced login form handler
 function setupLoginForm() {
     console.log('🔧 Setting up login form...');
     
@@ -687,7 +759,7 @@ function setupLoginForm() {
         document.getElementById('username').setAttribute('autocomplete', 'off');
         document.getElementById('password').setAttribute('autocomplete', 'new-password');
         
-        // Add enter key support for better UX
+        // Add enter key support
         document.getElementById('username').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 document.getElementById('password').focus();
@@ -700,14 +772,13 @@ function setupLoginForm() {
     }
 }
 
-// Logout function (global)
+// Global functions
 function logout() {
     if (confirm('Are you sure you want to logout?')) {
         Auth.logout();
     }
 }
 
-// Enhanced alert system with better error handling
 function showAlert(message, type = 'info', duration = 5000) {
     try {
         console.log(`📢 Alert [${type}]: ${message}`);
@@ -771,7 +842,7 @@ function showAlert(message, type = 'info', duration = 5000) {
     }
 }
 
-// Initialize authentication when page loads with comprehensive error handling
+// Initialize authentication when page loads
 document.addEventListener('DOMContentLoaded', () => {
     console.log('📄 DOM Content Loaded - Starting initialization...');
     
@@ -785,8 +856,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Initialize auth
         Auth.init();
         
-        // Check if user is already logged in with reduced delay for testing
-        const loadingDelay = CONFIG.UI?.LOADING_DELAY || 1000; // Fallback if CONFIG not available
+        // Check if user is already logged in
+        const loadingDelay = CONFIG.UI?.LOADING_DELAY || 1000;
         
         setTimeout(() => {
             try {
@@ -804,15 +875,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (error) {
                 console.error('❌ Error in post-loading logic:', error);
-                // Fallback to login screen
                 Auth.showLogin();
                 showAlert('Initialization error. Please try logging in.', 'warning');
             }
-        }, Math.min(loadingDelay, 2000)); // Cap at 2 seconds max
+        }, Math.min(loadingDelay, 2000));
         
     } catch (error) {
         console.error('❌ Critical error during page initialization:', error);
-        // Emergency fallback
         setTimeout(() => {
             try {
                 Auth.showLogin();
@@ -827,7 +896,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Prevent browser from saving passwords
     window.addEventListener('beforeunload', () => {
         try {
-            // Clear sensitive form data before page unload
             Auth.clearLoginForm();
         } catch (error) {
             console.error('❌ Error during page unload:', error);
@@ -839,4 +907,4 @@ document.addEventListener('DOMContentLoaded', () => {
 window.Auth = Auth;
 window.showAlert = showAlert;
 
-console.log('🔐 Enhanced Auth module loaded with comprehensive error handling');
+console.log('🔐 Enhanced Auth module loaded with proper device management');
