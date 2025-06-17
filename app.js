@@ -65,7 +65,10 @@ class App {
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.classList.remove('active');
         });
-        document.querySelector(`[data-view="${viewId}"]`).classList.add('active');
+        const targetTab = document.querySelector(`[data-view="${viewId}"]`);
+        if (targetTab) {
+            targetTab.classList.add('active');
+        }
 
         // Load view content
         this.currentView = viewId;
@@ -173,11 +176,20 @@ class App {
 
     // Teacher Dashboard
     static async loadTeacherDashboard() {
-        const [homework, groups, submissions] = await Promise.all([
+        const [homework, groups] = await Promise.all([
             api.getTeacherHomework(),
-            api.getTeacherGroups(),
-            groups.length > 0 ? api.getGroupSubmissions(groups[0].id) : []
+            api.getTeacherGroups()
         ]);
+
+        // Get submissions from first group if available
+        let submissions = [];
+        if (groups.length > 0) {
+            try {
+                submissions = await api.getGroupSubmissions(groups[0].id);
+            } catch (error) {
+                console.warn('Could not load submissions:', error);
+            }
+        }
 
         const stats = [
             { icon: 'fas fa-book', value: homework.length, label: 'Assignments' },
@@ -234,11 +246,13 @@ class App {
         const averageScore = submissions.length > 0 ? 
             Math.round(submissions.reduce((sum, s) => sum + s.final_grade, 0) / submissions.length) : 0;
 
+        const userRank = leaderboard.leaderboard?.find(s => s.student_name === Auth.getCurrentUser().fullname)?.rank || 'N/A';
+
         const stats = [
             { icon: 'fas fa-book', value: homework.length, label: 'Available' },
             { icon: 'fas fa-check', value: completedHomework, label: 'Completed' },
             { icon: 'fas fa-chart-line', value: `${averageScore}%`, label: 'Average Score' },
-            { icon: 'fas fa-trophy', value: `#${leaderboard.leaderboard?.find(s => s.student_name === Auth.getCurrentUser().fullname)?.rank || 'N/A'}`, label: 'Rank' }
+            { icon: 'fas fa-trophy', value: `#${userRank}`, label: 'Rank' }
         ];
 
         document.getElementById('contentArea').innerHTML = `
@@ -338,36 +352,144 @@ class App {
         }
     }
 
-    // Show create teacher form
-    static showCreateTeacher() {
-        const fields = [
-            { name: 'fullname', label: 'Full Name', type: 'text', required: true },
-            { name: 'username', label: 'Username', type: 'text', required: true },
-            { name: 'password', label: 'Password', type: 'password', required: true }
-        ];
-
-        openModal('Add New Teacher', Components.createForm(fields, 'Create Teacher', 'App.createTeacher(event)'));
-    }
-
-    // Create teacher
-    static async createTeacher(event) {
-        event.preventDefault();
-        
-        const formData = new FormData(event.target);
-        const teacherData = {
-            fullname: formData.get('fullname'),
-            username: formData.get('username'),
-            password: formData.get('password'),
-            role: 'teacher'
-        };
+    // Load Students (Admin only)
+    static async loadStudents() {
+        const contentArea = document.getElementById('contentArea');
+        contentArea.innerHTML = Components.createLoading('Loading students...');
 
         try {
-            await api.createTeacher(teacherData);
-            showAlert('Teacher created successfully!', 'success');
-            closeModal();
-            this.loadTeachers();
+            const [students, groups] = await Promise.all([
+                api.getStudents(),
+                api.getGroups()
+            ]);
+            
+            contentArea.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Students Management</h2>
+                        <button class="btn btn-primary" onclick="App.showCreateStudent()">
+                            <i class="fas fa-plus"></i> Add Student
+                        </button>
+                    </div>
+                    ${students.length > 0 ? 
+                        students.map(student => 
+                            Components.createUserItem(student, [
+                                {
+                                    icon: 'fas fa-edit',
+                                    text: 'Edit',
+                                    class: 'btn-warning btn-small',
+                                    onclick: `App.showEditStudent(${student.id})`
+                                },
+                                {
+                                    icon: 'fas fa-users',
+                                    text: 'Move Group',
+                                    class: 'btn-info btn-small',
+                                    onclick: `App.showMoveStudent(${student.id})`
+                                },
+                                {
+                                    icon: 'fas fa-trash',
+                                    text: 'Delete',
+                                    class: 'btn-danger btn-small',
+                                    onclick: `App.deleteStudent(${student.id})`
+                                }
+                            ])
+                        ).join('') :
+                        Components.createEmptyState(
+                            'fas fa-graduation-cap',
+                            'No Students Yet',
+                            'Add your first student to get started.',
+                            '<button class="btn btn-primary" onclick="App.showCreateStudent()"><i class="fas fa-plus"></i> Add Student</button>'
+                        )
+                    }
+                </div>
+            `;
+            
+            // Store groups for later use
+            this.data.groups = groups;
         } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
+            contentArea.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle"></i> Error loading students: ${ApiUtils.handleError(error)}
+                </div>
+            `;
+        }
+    }
+
+    // Load Groups
+    static async loadGroups() {
+        const contentArea = document.getElementById('contentArea');
+        contentArea.innerHTML = Components.createLoading('Loading groups...');
+
+        try {
+            const [groups, teachers] = await Promise.all([
+                api.getGroups(),
+                Auth.isAdmin() ? api.getTeachers() : []
+            ]);
+            
+            contentArea.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">${Auth.isAdmin() ? 'Groups Management' : 'My Groups'}</h2>
+                        ${Auth.isAdmin() ? `
+                            <button class="btn btn-primary" onclick="App.showCreateGroup()">
+                                <i class="fas fa-plus"></i> Add Group
+                            </button>
+                        ` : ''}
+                    </div>
+                    ${groups.length > 0 ? 
+                        groups.map(group => {
+                            let actions = [];
+                            if (Auth.isAdmin()) {
+                                actions = [
+                                    {
+                                        icon: 'fas fa-edit',
+                                        text: 'Edit',
+                                        class: 'btn-warning btn-small',
+                                        onclick: `App.showEditGroup(${group.id})`
+                                    },
+                                    {
+                                        icon: 'fas fa-trophy',
+                                        text: 'Leaderboard',
+                                        class: 'btn-info btn-small',
+                                        onclick: `App.showGroupLeaderboard(${group.id})`
+                                    },
+                                    {
+                                        icon: 'fas fa-trash',
+                                        text: 'Delete',
+                                        class: 'btn-danger btn-small',
+                                        onclick: `App.deleteGroup(${group.id})`
+                                    }
+                                ];
+                            } else if (Auth.isTeacher()) {
+                                actions = [
+                                    {
+                                        icon: 'fas fa-trophy',
+                                        text: 'Leaderboard',
+                                        class: 'btn-info btn-small',
+                                        onclick: `App.showGroupLeaderboard(${group.id})`
+                                    }
+                                ];
+                            }
+                            return Components.createGroupItem(group, actions);
+                        }).join('') :
+                        Components.createEmptyState(
+                            'fas fa-users',
+                            'No Groups Yet',
+                            Auth.isAdmin() ? 'Create your first group to get started.' : 'No groups assigned to you yet.',
+                            Auth.isAdmin() ? '<button class="btn btn-primary" onclick="App.showCreateGroup()"><i class="fas fa-plus"></i> Add Group</button>' : ''
+                        )
+                    }
+                </div>
+            `;
+            
+            // Store teachers for later use
+            this.data.teachers = teachers;
+        } catch (error) {
+            contentArea.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle"></i> Error loading groups: ${ApiUtils.handleError(error)}
+                </div>
+            `;
         }
     }
 
@@ -377,9 +499,7 @@ class App {
         contentArea.innerHTML = Components.createLoading('Loading homework...');
 
         try {
-            let homework;
-            let title;
-            let createButton = '';
+            let homework, title, createButton = '';
 
             if (Auth.isTeacher()) {
                 homework = await api.getTeacherHomework();
@@ -410,6 +530,12 @@ class App {
                                         text: 'Edit',
                                         class: 'btn-warning btn-small',
                                         onclick: `App.showEditHomework(${hw.id})`
+                                    },
+                                    {
+                                        icon: 'fas fa-file-alt',
+                                        text: 'Submissions',
+                                        class: 'btn-info btn-small',
+                                        onclick: `App.showHomeworkSubmissions(${hw.id})`
                                     },
                                     {
                                         icon: 'fas fa-trash',
@@ -448,30 +574,87 @@ class App {
         }
     }
 
-    // Show submit homework modal
-    static showSubmitHomework(homeworkId) {
-        // This would open a file upload modal
-        // For now, show a simple alert
-        showAlert('File upload functionality would be implemented here', 'info');
-    }
+    // Load submissions based on user role
+    static async loadSubmissions() {
+        const contentArea = document.getElementById('contentArea');
+        contentArea.innerHTML = Components.createLoading('Loading submissions...');
 
-    // Show grade modal
-    static async showGrade(submissionId) {
         try {
-            const grade = await api.getStudentSubmissionGrade(submissionId);
-            openModal('Grade Details', Components.createGradeDisplay(grade), 'large');
+            let submissions, title;
+
+            if (Auth.isTeacher()) {
+                const groups = await api.getTeacherGroups();
+                if (groups.length > 0) {
+                    submissions = await api.getGroupSubmissions(groups[0].id);
+                    title = `Submissions - ${groups[0].name}`;
+                } else {
+                    submissions = [];
+                    title = 'Submissions';
+                }
+            } else if (Auth.isStudent()) {
+                submissions = await api.getStudentSubmissions();
+                title = 'My Submissions';
+            }
+
+            contentArea.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">${title}</h2>
+                    </div>
+                    ${submissions.length > 0 ? 
+                        submissions.map(submission => {
+                            let actions = [];
+                            if (Auth.isTeacher()) {
+                                actions = [
+                                    {
+                                        icon: 'fas fa-eye',
+                                        text: 'View Grade',
+                                        class: 'btn-info btn-small',
+                                        onclick: `App.showTeacherGrade(${submission.id})`
+                                    },
+                                    {
+                                        icon: 'fas fa-edit',
+                                        text: 'Edit Grade',
+                                        class: 'btn-warning btn-small',
+                                        onclick: `App.showEditGrade(${submission.id})`
+                                    }
+                                ];
+                            } else if (Auth.isStudent()) {
+                                actions = [
+                                    {
+                                        icon: 'fas fa-eye',
+                                        text: 'View Grade',
+                                        class: 'btn-info btn-small',
+                                        onclick: `App.showGrade(${submission.id})`
+                                    }
+                                ];
+                            }
+                            return Components.createSubmissionItem(submission, actions);
+                        }).join('') :
+                        Components.createEmptyState(
+                            'fas fa-file-alt',
+                            'No Submissions Yet',
+                            Auth.isTeacher() ? 'Students will submit their homework here.' : 'Submit your first homework to see it here.'
+                        )
+                    }
+                </div>
+            `;
         } catch (error) {
-            showAlert(ApiUtils.handleError(error), 'danger');
+            contentArea.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle"></i> Error loading submissions: ${ApiUtils.handleError(error)}
+                </div>
+            `;
         }
     }
 
-    // Load leaderboard (Student only)
-    static async loadLeaderboard() {
+    // Load leaderboard
+    static async loadLeaderboard(period = 'all') {
         const contentArea = document.getElementById('contentArea');
         contentArea.innerHTML = Components.createLoading('Loading leaderboard...');
 
         try {
-            const data = await api.getStudentLeaderboard();
+            const data = await api.getStudentLeaderboard(period);
             
             contentArea.innerHTML = `
                 <div class="card">
@@ -479,10 +662,10 @@ class App {
                         <h2 class="card-title">Class Rankings</h2>
                         <div>
                             <select onchange="App.loadLeaderboard(this.value)" class="form-control" style="width: auto; display: inline-block;">
-                                <option value="all">All Time</option>
-                                <option value="month">This Month</option>
-                                <option value="week">This Week</option>
-                                <option value="day">Today</option>
+                                <option value="all" ${period === 'all' ? 'selected' : ''}>All Time</option>
+                                <option value="month" ${period === 'month' ? 'selected' : ''}>This Month</option>
+                                <option value="week" ${period === 'week' ? 'selected' : ''}>This Week</option>
+                                <option value="day" ${period === 'day' ? 'selected' : ''}>Today</option>
                             </select>
                         </div>
                     </div>
@@ -498,11 +681,547 @@ class App {
         }
     }
 
-    // Additional methods would be implemented here for:
-    // - loadStudents(), loadGroups(), loadSubmissions()
-    // - CRUD operations for each entity type
-    // - Form handling and validation
-    // - Error handling and user feedback
+    // Teacher CRUD Operations
+    static showCreateTeacher() {
+        const fields = [
+            { name: 'fullname', label: 'Full Name', type: 'text', required: true, placeholder: 'e.g. John Smith' },
+            { name: 'username', label: 'Username', type: 'text', required: true, placeholder: 'e.g. jsmith' },
+            { name: 'password', label: 'Password', type: 'password', required: true, placeholder: 'Minimum 8 characters' }
+        ];
+
+        openModal('Add New Teacher', Components.createForm(fields, 'Create Teacher', 'App.createTeacher(event)'));
+    }
+
+    static async createTeacher(event) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const teacherData = {
+            fullname: formData.get('fullname'),
+            username: formData.get('username'),
+            password: formData.get('password'),
+            role: 'teacher'
+        };
+
+        try {
+            await api.createTeacher(teacherData);
+            showAlert('Teacher created successfully!', 'success');
+            closeModal();
+            this.loadTeachers();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async showEditTeacher(teacherId) {
+        try {
+            const teachers = await api.getTeachers();
+            const teacher = teachers.find(t => t.id === teacherId);
+            
+            if (!teacher) {
+                showAlert('Teacher not found!', 'danger');
+                return;
+            }
+
+            const fields = [
+                { name: 'fullname', label: 'Full Name', type: 'text', required: true, value: teacher.fullname },
+                { name: 'password', label: 'New Password (leave blank to keep current)', type: 'password' }
+            ];
+
+            openModal('Edit Teacher', Components.createForm(fields, 'Update Teacher', `App.updateTeacher(event, ${teacherId})`));
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async updateTeacher(event, teacherId) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const teacherData = {
+            fullname: formData.get('fullname')
+        };
+
+        const password = formData.get('password');
+        if (password) {
+            teacherData.password = password;
+        }
+
+        try {
+            await api.updateTeacher(teacherId, teacherData);
+            showAlert('Teacher updated successfully!', 'success');
+            closeModal();
+            this.loadTeachers();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async deleteTeacher(teacherId) {
+        if (!confirm('Are you sure you want to delete this teacher? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            await api.deleteTeacher(teacherId);
+            showAlert('Teacher deleted successfully!', 'success');
+            this.loadTeachers();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Student CRUD Operations
+    static showCreateStudent() {
+        const groups = this.data.groups || [];
+        const groupOptions = [
+            { value: '', label: 'No Group' },
+            ...groups.map(g => ({ value: g.id, label: g.name }))
+        ];
+
+        const fields = [
+            { name: 'fullname', label: 'Full Name', type: 'text', required: true, placeholder: 'e.g. Alice Johnson' },
+            { name: 'username', label: 'Username', type: 'text', required: true, placeholder: 'e.g. alice' },
+            { name: 'password', label: 'Password', type: 'password', required: true, placeholder: 'Minimum 8 characters' },
+            { name: 'group_id', label: 'Group', type: 'select', options: groupOptions }
+        ];
+
+        openModal('Add New Student', Components.createForm(fields, 'Create Student', 'App.createStudent(event)'));
+    }
+
+    static async createStudent(event) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const studentData = {
+            fullname: formData.get('fullname'),
+            username: formData.get('username'),
+            password: formData.get('password'),
+            role: 'student',
+            group_id: formData.get('group_id') ? parseInt(formData.get('group_id')) : null
+        };
+
+        try {
+            await api.createStudent(studentData);
+            showAlert('Student created successfully!', 'success');
+            closeModal();
+            this.loadStudents();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async showEditStudent(studentId) {
+        try {
+            const [students, groups] = await Promise.all([
+                api.getStudents(),
+                api.getGroups()
+            ]);
+            
+            const student = students.find(s => s.id === studentId);
+            if (!student) {
+                showAlert('Student not found!', 'danger');
+                return;
+            }
+
+            const groupOptions = [
+                { value: '', label: 'No Group' },
+                ...groups.map(g => ({ value: g.id, label: g.name }))
+            ];
+
+            const fields = [
+                { name: 'fullname', label: 'Full Name', type: 'text', required: true, value: student.fullname },
+                { name: 'password', label: 'New Password (leave blank to keep current)', type: 'password' },
+                { name: 'group_id', label: 'Group', type: 'select', options: groupOptions, value: student.group_id || '' }
+            ];
+
+            openModal('Edit Student', Components.createForm(fields, 'Update Student', `App.updateStudent(event, ${studentId})`));
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async updateStudent(event, studentId) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const studentData = {
+            fullname: formData.get('fullname'),
+            group_id: formData.get('group_id') ? parseInt(formData.get('group_id')) : null
+        };
+
+        const password = formData.get('password');
+        if (password) {
+            studentData.password = password;
+        }
+
+        try {
+            await api.updateStudent(studentId, studentData);
+            showAlert('Student updated successfully!', 'success');
+            closeModal();
+            this.loadStudents();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async deleteStudent(studentId) {
+        if (!confirm('Are you sure you want to delete this student? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            await api.deleteStudent(studentId);
+            showAlert('Student deleted successfully!', 'success');
+            this.loadStudents();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Group CRUD Operations
+    static showCreateGroup() {
+        const teachers = this.data.teachers || [];
+        const teacherOptions = teachers.map(t => ({ value: t.id, label: t.fullname }));
+
+        const fields = [
+            { name: 'name', label: 'Group Name', type: 'text', required: true, placeholder: 'e.g. Computer Science 101' },
+            { name: 'teacher_id', label: 'Teacher', type: 'select', options: teacherOptions, required: true }
+        ];
+
+        openModal('Add New Group', Components.createForm(fields, 'Create Group', 'App.createGroup(event)'));
+    }
+
+    static async createGroup(event) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const groupData = {
+            name: formData.get('name'),
+            teacher_id: parseInt(formData.get('teacher_id'))
+        };
+
+        try {
+            await api.createGroup(groupData);
+            showAlert('Group created successfully!', 'success');
+            closeModal();
+            this.loadGroups();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async showEditGroup(groupId) {
+        try {
+            const [groups, teachers] = await Promise.all([
+                api.getGroups(),
+                api.getTeachers()
+            ]);
+            
+            const group = groups.find(g => g.id === groupId);
+            if (!group) {
+                showAlert('Group not found!', 'danger');
+                return;
+            }
+
+            const teacherOptions = teachers.map(t => ({ value: t.id, label: t.fullname }));
+
+            const fields = [
+                { name: 'name', label: 'Group Name', type: 'text', required: true, value: group.name },
+                { name: 'teacher_id', label: 'Teacher', type: 'select', options: teacherOptions, value: group.teacher_id }
+            ];
+
+            openModal('Edit Group', Components.createForm(fields, 'Update Group', `App.updateGroup(event, ${groupId})`));
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async updateGroup(event, groupId) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const groupData = {
+            name: formData.get('name'),
+            teacher_id: parseInt(formData.get('teacher_id'))
+        };
+
+        try {
+            await api.updateGroup(groupId, groupData);
+            showAlert('Group updated successfully!', 'success');
+            closeModal();
+            this.loadGroups();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async deleteGroup(groupId) {
+        if (!confirm('Are you sure you want to delete this group? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            await api.deleteGroup(groupId);
+            showAlert('Group deleted successfully!', 'success');
+            this.loadGroups();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Homework CRUD Operations
+    static async showCreateHomework() {
+        try {
+            const groups = await api.getTeacherGroups();
+            const groupOptions = groups.map(g => ({ value: g.id, label: g.name }));
+
+            if (groupOptions.length === 0) {
+                showAlert('You need to be assigned to a group first!', 'warning');
+                return;
+            }
+
+            const languageOptions = Object.entries(CONFIG.LANGUAGES).map(([ext, name]) => ({
+                value: ext,
+                label: `${name} (${ext})`
+            }));
+
+            const fields = [
+                { name: 'title', label: 'Assignment Title', type: 'text', required: true, placeholder: 'e.g. Python Functions Practice' },
+                { name: 'description', label: 'Description', type: 'textarea', required: true, placeholder: 'Describe the assignment requirements...' },
+                { name: 'points', label: 'Total Points', type: 'number', required: true, value: '100', min: '1', max: '1000' },
+                { name: 'start_date', label: 'Start Date', type: 'datetime-local', required: true, value: new Date().toISOString().slice(0, 16) },
+                { name: 'deadline', label: 'Deadline', type: 'datetime-local', required: true, value: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16) },
+                { name: 'line_limit', label: 'Line Limit', type: 'select', required: true, options: [
+                    { value: 300, label: '300 lines' },
+                    { value: 600, label: '600 lines' },
+                    { value: 900, label: '900 lines' },
+                    { value: 1200, label: '1200 lines' }
+                ]},
+                { name: 'file_extension', label: 'Programming Language', type: 'select', required: true, options: languageOptions },
+                { name: 'group_id', label: 'Group', type: 'select', required: true, options: groupOptions },
+                { name: 'ai_grading_prompt', label: 'AI Grading Criteria', type: 'textarea', required: true, placeholder: 'Specific criteria for the AI to evaluate this assignment...' }
+            ];
+
+            openModal('Create New Homework', Components.createForm(fields, 'Create Homework', 'App.createHomework(event)'), 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async createHomework(event) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const homeworkData = {
+            title: formData.get('title'),
+            description: formData.get('description'),
+            points: parseInt(formData.get('points')),
+            start_date: formData.get('start_date'),
+            deadline: formData.get('deadline'),
+            line_limit: parseInt(formData.get('line_limit')),
+            file_extension: formData.get('file_extension'),
+            group_id: parseInt(formData.get('group_id')),
+            ai_grading_prompt: formData.get('ai_grading_prompt')
+        };
+
+        try {
+            await api.createHomework(homeworkData);
+            showAlert('Homework created successfully!', 'success');
+            closeModal();
+            this.loadHomework();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async deleteHomework(homeworkId) {
+        if (!confirm('Are you sure you want to delete this homework? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            await api.deleteHomework(homeworkId);
+            showAlert('Homework deleted successfully!', 'success');
+            this.loadHomework();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Submission Operations
+    static showSubmitHomework(homeworkId) {
+        const content = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> Upload your code files for this assignment. Make sure your code follows the requirements and stays within the line limit.
+            </div>
+            
+            <form onsubmit="App.submitHomework(event, ${homeworkId})">
+                <div class="form-group">
+                    <label for="fileName">File Name</label>
+                    <input type="text" id="fileName" name="fileName" class="form-control" required placeholder="e.g. solution.py">
+                </div>
+                
+                <div class="form-group">
+                    <label for="fileContent">Code Content</label>
+                    <textarea id="fileContent" name="fileContent" class="form-control code-textarea" required placeholder="Paste your code here..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-upload"></i> Submit Homework
+                    </button>
+                    <button type="button" class="btn btn-light" onclick="closeModal()">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
+            </form>
+        `;
+
+        openModal('Submit Homework', content, 'large');
+    }
+
+    static async submitHomework(event, homeworkId) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const submissionData = {
+            files: [{
+                file_name: formData.get('fileName'),
+                content: formData.get('fileContent')
+            }]
+        };
+
+        try {
+            await api.submitHomework(homeworkId, submissionData);
+            showAlert('Homework submitted successfully! AI grading in progress...', 'success');
+            closeModal();
+            this.loadHomework();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Grade Operations
+    static async showGrade(submissionId) {
+        try {
+            const grade = await api.getStudentSubmissionGrade(submissionId);
+            openModal('Grade Details', Components.createGradeDisplay(grade), 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async showTeacherGrade(submissionId) {
+        try {
+            const grade = await api.getSubmissionGrade(submissionId);
+            openModal('Grade Details', Components.createGradeDisplay(grade), 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async showEditGrade(submissionId) {
+        try {
+            const grade = await api.getSubmissionGrade(submissionId);
+            
+            const fields = [
+                { 
+                    name: 'final_task_completeness', 
+                    label: 'Task Completeness (0-100)', 
+                    type: 'number', 
+                    min: '0', 
+                    max: '100', 
+                    value: grade.final_task_completeness 
+                },
+                { 
+                    name: 'final_code_quality', 
+                    label: 'Code Quality (0-100)', 
+                    type: 'number', 
+                    min: '0', 
+                    max: '100', 
+                    value: grade.final_code_quality 
+                },
+                { 
+                    name: 'final_correctness', 
+                    label: 'Correctness (0-100)', 
+                    type: 'number', 
+                    min: '0', 
+                    max: '100', 
+                    value: grade.final_correctness 
+                }
+            ];
+
+            openModal('Edit Grade', Components.createForm(fields, 'Update Grade', `App.updateGrade(event, ${submissionId})`));
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async updateGrade(event, submissionId) {
+        event.preventDefault();
+        
+        const formData = new FormData(event.target);
+        const gradeData = {
+            final_task_completeness: parseInt(formData.get('final_task_completeness')),
+            final_code_quality: parseInt(formData.get('final_code_quality')),
+            final_correctness: parseInt(formData.get('final_correctness'))
+        };
+
+        try {
+            await api.updateGrade(submissionId, gradeData);
+            showAlert('Grade updated successfully!', 'success');
+            closeModal();
+            this.loadSubmissions();
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    // Utility methods
+    static async showGroupLeaderboard(groupId) {
+        try {
+            let data;
+            if (Auth.isAdmin()) {
+                data = await api.getAdminLeaderboard(groupId);
+            } else {
+                data = await api.getTeacherLeaderboard(groupId);
+            }
+
+            const content = `
+                <div style="margin-bottom: 20px;">
+                    <select onchange="App.changeLeaderboardPeriod(${groupId}, this.value)" class="form-control" style="width: auto; display: inline-block;">
+                        <option value="all">All Time</option>
+                        <option value="month">This Month</option>
+                        <option value="week">This Week</option>
+                        <option value="day">Today</option>
+                    </select>
+                </div>
+                <div id="leaderboardContent">
+                    ${Components.createLeaderboard(data.leaderboard)}
+                </div>
+            `;
+
+            openModal(`${data.group_name} Leaderboard`, content, 'large');
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
+
+    static async changeLeaderboardPeriod(groupId, period) {
+        try {
+            let data;
+            if (Auth.isAdmin()) {
+                data = await api.getAdminLeaderboard(groupId, period);
+            } else {
+                data = await api.getTeacherLeaderboard(groupId, period);
+            }
+
+            document.getElementById('leaderboardContent').innerHTML = Components.createLeaderboard(data.leaderboard);
+        } catch (error) {
+            showAlert(ApiUtils.handleError(error), 'danger');
+        }
+    }
 }
 
 // Export App class globally
